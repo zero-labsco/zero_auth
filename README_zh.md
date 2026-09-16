@@ -12,7 +12,7 @@
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 推荐升级：** `0.1.0` 是 `zero_auth` 的首个公开版本，也是建议锁定的版本——它提供显式的认证状态机（`Unauthenticated → Authenticating → Authenticated → AuthError`）、单飞刷新与静默恢复、后端无关的 `AuthStrategy` 边界、可插拔的 `TokenStore` 持久化、统一的 `AppException` 错误，以及可直接用于 Dio 拦截器的 `AuthTokenSource`。请使用 `zero_auth: ^0.1.0`（Git 方式用 `ref: v0.1.0`）。
+> **🔔 推荐升级：** `0.2.0` 新增**会话（反）序列化**（`AuthSession.toJson` / `AuthSession.fromJson`），让会话可跨重启保留；新增面向服务端 / CLI 的**基于文件的参考存储**；并新增可选的**临近过期自动刷新**，在令牌失效前主动续期。请使用 `zero_auth: ^0.2.0`（Git 方式用 `ref: v0.2.0`）。
 
 🌐 **[官方网站](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[在 pub.dev 查看](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[查看 GitHub 仓库](https://github.com/zero-labsco/zero_auth)**
 
@@ -45,6 +45,8 @@
 - **面向网络**：`AuthTokenSource` 是扩展点，让 Dio / GraphQL 拦截器能为请求附加 `Authorization: Bearer` 头。
 - **零原生代码**：无插件、无 `dart:io`-only API；可在服务端、CLI 与 Flutter 中运行。
 - **强类型会话**：`AuthSession` 携带访问 / 刷新令牌、过期时间与原始 claims。
+- **会话（反）序列化**：`AuthSession.toJson` / `AuthSession.fromJson` 让持久化成为一行代码；并附带面向服务端 / CLI 的基于文件的参考存储。
+- **临近过期自动刷新**：给 `AuthManager` 传入 `autoRefreshAhead`，令牌会在过期前自动续期（单飞机制），调用方几乎不会撞上过期的访问令牌。
 
 ## 安装
 
@@ -52,7 +54,7 @@
 
 ```yaml
 dependencies:
-  zero_auth: ^0.1.0
+  zero_auth: ^0.2.0
 ```
 
 ### Git
@@ -62,7 +64,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: v0.1.0   # 固定到发布标签，而不是会移动的分支
+      ref: v0.2.0   # 固定到发布标签，而不是会移动的分支
 ```
 
 ## 使用方法

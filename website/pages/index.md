@@ -16,6 +16,8 @@ A backend-agnostic auth state machine & session lifecycle core for Dart/Flutter.
 | **Typed Session** | `AuthSession` carries access/refresh tokens, expiry (`isExpired`), user id, display name and raw claims / 强类型会话，无需手工解析令牌 |
 | **Unified Errors** | Every failure maps to `AppException` (`AuthException` for auth cases) or a `Result<T>` wrapper; raw exceptions never cross the public surface / 统一异常与结果，裸异常不越界 |
 | **Network Integration** | `AuthManager` itself is an `AuthTokenSource`, so a Dio interceptor can attach `Authorization: Bearer` without depending on the manager / 管理器即令牌源，Dio 拦截器零依赖附加令牌 |
+| **Session Serialization** | `AuthSession.toJson` / `fromJson` make persistence a one-liner; a file-based reference store ships for server/CLI / `AuthSession.toJson` / `fromJson` 让持久化一行搞定，并附带面向服务端 / CLI 的文件参考存储 |
+| **Proactive Auto-refresh** | Pass `autoRefreshAhead` to renew tokens before expiry (single-flight) / 传入 `autoRefreshAhead` 在过期前自动续期（单飞） |
 | **Runnable Example** | A full Flutter demo app (Android/iOS/Web/Windows) plus a zero-dependency `dart:io` demo backend / 完整 Flutter 示例与一个零依赖演示后端 |
 | **Cross-platform** | Pure Dart — runs anywhere Dart or Flutter runs / 纯 Dart，跨平台 |
 

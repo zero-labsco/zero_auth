@@ -56,5 +56,6 @@ class SecureTokenStore implements TokenStore {
 
 ## Next Steps / 下一步
 
+- [Session Persistence](Persistence) — persist sessions across restarts (serialization + reference stores) / 跨重启持久化会话（序列化与参考存储）
 - [Backend Strategy](Backend-Strategy) — The other boundary / 另一个边界
 - [Errors](Errors) — What `load()` failures become / `load()` 失败会变成什么

@@ -1,9 +1,41 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 import 'package:zero_auth/zero_auth.dart';
 
 import 'fake_strategy.dart';
+
+/// A strategy whose [refresh] returns a session with a freshly extended expiry,
+/// so proactive refresh does not re-trigger immediately.
+/// 一个刷新会返回「过期时间已顺延」会话的策略，避免主动刷新立即重复触发。
+final class ExtendingAuthStrategy implements AuthStrategy {
+  int refreshCount = 0;
+
+  AuthSession _session(DateTime expiresAt) => AuthSession(
+        accessToken: 'access',
+        refreshToken: const RefreshToken('refresh'),
+        expiresAt: expiresAt,
+        userId: 'u1',
+      );
+
+  @override
+  Future<AuthSession> login(Credentials credentials) async =>
+      _session(DateTime.now().add(const Duration(hours: 1)));
+
+  @override
+  Future<AuthSession> register(RegistrationInput input) async =>
+      _session(DateTime.now().add(const Duration(hours: 1)));
+
+  @override
+  Future<void> logout(SessionHandle handle) async {}
+
+  @override
+  Future<AuthSession> refresh(RefreshToken token) async {
+    refreshCount++;
+    return _session(DateTime.now().add(const Duration(hours: 1)));
+  }
+}
 
 void main() {
   group('AuthManager — construction', () {
@@ -132,6 +164,59 @@ void main() {
     test('throws without a session', () async {
       final manager = AuthManager(strategy: FakeAuthStrategy());
       expect(manager.refresh(), throwsA(isA<AuthException>()));
+    });
+  });
+
+  group('AuthManager — auto refresh', () {
+    test('refreshes proactively ahead of expiry', () {
+      FakeAsync().run((async) {
+        final strategy = ExtendingAuthStrategy();
+        final manager = AuthManager(
+          strategy: strategy,
+          autoRefreshAhead: const Duration(minutes: 5),
+        );
+
+        manager.login(const Credentials(username: 'a', password: 'b'));
+        async.flushMicrotasks();
+        expect(strategy.refreshCount, 0);
+
+        // Advance to 5 minutes before the 1-hour expiry; the timer fires once.
+        async.elapse(const Duration(minutes: 55));
+        expect(strategy.refreshCount, 1);
+      });
+    });
+
+    test('does not schedule when autoRefreshAhead is null', () {
+      FakeAsync().run((async) {
+        final strategy = ExtendingAuthStrategy();
+        final manager = AuthManager(strategy: strategy);
+
+        manager.login(const Credentials(username: 'a', password: 'b'));
+        async.flushMicrotasks();
+        async.elapse(const Duration(hours: 2));
+        expect(strategy.refreshCount, 0);
+      });
+    });
+
+    test('does not schedule without a refresh token', () {
+      FakeAsync().run((async) {
+        final strategy = FakeAuthStrategy(
+          session: const AuthSession(
+            accessToken: 'access',
+            userId: 'u1',
+            expiresAt: null,
+          ),
+        );
+        final manager = AuthManager(
+          strategy: strategy,
+          autoRefreshAhead: const Duration(minutes: 5),
+        );
+
+        manager.login(const Credentials(username: 'a', password: 'b'));
+        async.flushMicrotasks();
+        async.elapse(const Duration(hours: 2));
+        expect(strategy.refreshCount, 0);
+      });
     });
   });
 

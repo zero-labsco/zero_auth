@@ -12,7 +12,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 Upgrade recommended:** `0.1.0` is the first public release of `zero_auth` and the version to pin — it ships the explicit auth state machine (`Unauthenticated → Authenticating → Authenticated → AuthError`), single-flight refresh with silent restore, the backend-agnostic `AuthStrategy` boundary, pluggable `TokenStore` persistence, unified `AppException` errors, and `AuthTokenSource` for Dio interceptors. Use `zero_auth: ^0.1.0` (or git `ref: v0.1.0`).
+> **🔔 Upgrade recommended:** `0.2.0` adds **session (de)serialization** (`AuthSession.toJson` / `AuthSession.fromJson`) so sessions survive restarts, a **file-based reference store** for server/CLI, and **opt-in proactive auto-refresh** that renews tokens before they expire. Pin `zero_auth: ^0.2.0` (or git `ref: v0.2.0`).
 
 🌐 **[Official Website](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[View on pub.dev](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[View on GitHub](https://github.com/zero-labsco/zero_auth)**
 
@@ -45,6 +45,8 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 - **Network-ready** — `AuthTokenSource` is the extension point that lets Dio / GraphQL interceptors attach `Authorization: Bearer` headers.
 - **Zero native code** — no plugins, no `dart:io`-only APIs; runs on server, CLI, and Flutter alike.
 - **Strongly-typed session** — `AuthSession` carries access/refresh tokens, expiry, and raw claims.
+- **Session (de)serialization** — `AuthSession.toJson` / `AuthSession.fromJson` make persistence a one-liner; a file-based reference store ships for server/CLI.
+- **Proactive auto-refresh** — pass `autoRefreshAhead` to `AuthManager` and tokens renew before expiry (single-flight), so callers rarely hit an expired access token.
 
 ## Installation
 
@@ -52,7 +54,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 
 ```yaml
 dependencies:
-  zero_auth: ^0.1.0
+  zero_auth: ^0.2.0
 ```
 
 ### Git
@@ -62,7 +64,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: v0.1.0   # pin a release tag, not a moving branch
+      ref: v0.2.0   # pin a release tag, not a moving branch
 ```
 
 ## Usage

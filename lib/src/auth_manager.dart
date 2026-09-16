@@ -24,11 +24,27 @@ final class AuthManager implements AuthTokenSource {
       StreamController<AuthState>.broadcast();
 
   Completer<AuthSession>? _refreshCompleter;
+  Timer? _autoRefreshTimer;
 
   /// Creates a manager. Defaults to [InMemoryTokenStore].
+  ///
+  /// Pass [autoRefreshAhead] to enable proactive refresh: when a session carries
+  /// both an [AuthSession.expiresAt] and a refresh token, the manager schedules a
+  /// single [refresh] call that many minutes before expiry, so callers rarely hit
+  /// an expired access token. Defaults to `null` (disabled).
   /// 创建管理器，默认使用 [InMemoryTokenStore]。
-  AuthManager({required this.strategy, TokenStore? tokenStore})
-      : tokenStore = tokenStore ?? InMemoryTokenStore();
+  ///
+  /// 传入 [autoRefreshAhead] 可开启「临近过期自动刷新」：当会话同时带有
+  /// [AuthSession.expiresAt] 与刷新令牌时，管理器会在过期前该时长调度一次
+  /// [refresh]，从而让调用方几乎不会撞上过期的访问令牌。默认 `null`（关闭）。
+  AuthManager({
+    required this.strategy,
+    TokenStore? tokenStore,
+    Duration? autoRefreshAhead,
+  })  : tokenStore = tokenStore ?? InMemoryTokenStore(),
+        _autoRefreshAhead = autoRefreshAhead;
+
+  final Duration? _autoRefreshAhead;
 
   /// The current state (always available, replay-last).
   /// 当前状态（始终可用，重放最近值）。
@@ -60,7 +76,11 @@ final class AuthManager implements AuthTokenSource {
   /// 启动时恢复持久化会话。
   Future<void> restore() async {
     final session = await tokenStore.load();
-    _emit(session == null ? const Unauthenticated() : Authenticated(session));
+    if (session == null) {
+      _emit(const Unauthenticated());
+    } else {
+      _activate(session);
+    }
   }
 
   /// Log in: emits [Authenticating] → [Authenticated] (or [AuthError] on failure).
@@ -71,7 +91,7 @@ final class AuthManager implements AuthTokenSource {
       final session = await strategy.login(credentials);
       await tokenStore.save(session);
       final next = Authenticated(session);
-      _emit(next);
+      _activate(session);
       return next;
     } catch (e, st) {
       final err = _toAppException(e, st);
@@ -88,7 +108,7 @@ final class AuthManager implements AuthTokenSource {
       final session = await strategy.register(input);
       await tokenStore.save(session);
       final next = Authenticated(session);
-      _emit(next);
+      _activate(session);
       return next;
     } catch (e, st) {
       final err = _toAppException(e, st);
@@ -100,6 +120,7 @@ final class AuthManager implements AuthTokenSource {
   /// Log out: notify the backend, clear storage, emit [Unauthenticated].
   /// 登出：通知后端、清空存储、发 [Unauthenticated]。
   Future<void> logout() async {
+    _autoRefreshTimer?.cancel();
     final session = currentSession;
     if (session != null) {
       try {
@@ -131,7 +152,7 @@ final class AuthManager implements AuthTokenSource {
         }
         final refreshed = await strategy.refresh(session.refreshToken!);
         await tokenStore.save(refreshed);
-        _emit(Authenticated(refreshed));
+        _activate(refreshed);
         completer.complete(refreshed);
       } catch (e, st) {
         completer.completeError(_toAppException(e, st));
@@ -144,7 +165,37 @@ final class AuthManager implements AuthTokenSource {
 
   /// Release internal resources. Call when the manager is no longer used.
   /// 释放内部资源。不再使用时调用。
-  Future<void> dispose() => _controller.close();
+  Future<void> dispose() {
+    _autoRefreshTimer?.cancel();
+    return _controller.close();
+  }
+
+  void _activate(AuthSession session) {
+    _emit(Authenticated(session));
+    _scheduleAutoRefresh(session);
+  }
+
+  /// Schedule a one-shot [refresh] [autoRefreshAhead] before [AuthSession.expiresAt].
+  /// No-op when proactive refresh is disabled, or the session lacks an expiry or
+  /// a refresh token.
+  /// 在 [AuthSession.expiresAt] 之前 [autoRefreshAhead] 调度一次 [refresh]。
+  /// 当未开启主动刷新、或会话缺少过期时间 / 刷新令牌时为空操作。
+  void _scheduleAutoRefresh(AuthSession session) {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = null;
+    final ahead = _autoRefreshAhead;
+    if (ahead == null ||
+        session.expiresAt == null ||
+        session.refreshToken == null) {
+      return;
+    }
+    final delay = session.expiresAt!.difference(DateTime.now()) - ahead;
+    if (delay <= Duration.zero) {
+      unawaited(refresh());
+      return;
+    }
+    _autoRefreshTimer = Timer(delay, () => unawaited(refresh()));
+  }
 
   void _emit(AuthState state) {
     _state = state;

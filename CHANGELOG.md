@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.2.0
+
+### Added / 新增
+
+- **Session (de)serialization** — `AuthSession` now exposes `toJson()` /
+  `AuthSession.fromJson()` (and `RefreshToken` gains matching `toJson()` /
+  `fromJson()`), so a session can be persisted to disk or secure storage and
+  rehydrated losslessly across app restarts. `null` fields are omitted and
+  `claims` round-trips as a plain map.
+  - **会话（反）序列化**——`AuthSession` 现提供 `toJson()` / `AuthSession.fromJson()`
+    （`RefreshToken` 也增加对应的 `toJson()` / `fromJson()`），会话可被持久化到
+    磁盘或安全存储，并在应用重启后无损恢复。`null` 字段会被省略，`claims`
+    作为普通映射原样往返。
+- **Proactive auto-refresh** — `AuthManager` accepts a new optional
+  `autoRefreshAhead` duration. When a session carries both an `expiresAt` and a
+  refresh token, the manager schedules a single-flight `refresh()` that many
+  minutes before expiry, so callers rarely hit an expired access token. Disabled
+  by default (backwards compatible).
+  - **临近过期自动刷新**——`AuthManager` 新增可选参数 `autoRefreshAhead`。当会话同时
+    带有 `expiresAt` 与刷新令牌时，管理器会在过期前该时长调度一次单飞 `refresh()`，
+    调用方几乎不会撞上过期的访问令牌。默认关闭，向后兼容。
+
+### Example / 示例
+
+- Added `example/lib/json_token_store.dart` — a `dart:io` file-backed
+  `TokenStore` built on the new serialization, for server / CLI / desktop.
+  - 新增 `example/lib/json_token_store.dart`——基于新序列化、面向服务端 / CLI /
+    桌面的 `dart:io` 文件型 `TokenStore`。
+
 ## 0.1.0
 
 ### Added / 新增

@@ -76,6 +76,42 @@ void main() {
     });
   });
 
+  group('AuthSession serialization', () {
+    test('toJson / fromJson round-trips all fields', () {
+      final expiresAt = DateTime.utc(2030, 1, 1, 12, 0, 0);
+      final session = AuthSession(
+        accessToken: 'a',
+        refreshToken: RefreshToken('r'),
+        expiresAt: expiresAt,
+        userId: 'u1',
+        displayName: 'User',
+        claims: {'role': 'admin', 'n': 2},
+      );
+
+      final json = session.toJson();
+      final restored = AuthSession.fromJson(json);
+
+      expect(restored.accessToken, 'a');
+      expect(restored.refreshToken, const RefreshToken('r'));
+      expect(restored.expiresAt, expiresAt);
+      expect(restored.userId, 'u1');
+      expect(restored.displayName, 'User');
+      expect(restored.claims, {'role': 'admin', 'n': 2});
+    });
+
+    test('omits null fields', () {
+      const session = AuthSession(accessToken: 'a');
+      final json = session.toJson();
+
+      expect(json.containsKey('refreshToken'), isFalse);
+      expect(json.containsKey('expiresAt'), isFalse);
+      expect(json.containsKey('userId'), isFalse);
+      expect(json.containsKey('displayName'), isFalse);
+      expect(json.containsKey('claims'), isFalse);
+      expect(AuthSession.fromJson(json).accessToken, 'a');
+    });
+  });
+
   group('AuthState', () {
     test('isAuthenticated is only true for Authenticated', () {
       expect(const Unauthenticated().isAuthenticated, isFalse);

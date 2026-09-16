@@ -13,6 +13,7 @@ export default {
   '--advanced': { type: 'separator', title: '🛠 Advanced' },
   Errors: '⚠️ Errors',
   Configuration: '⚙️ Configuration',
+  Persistence: '💽 Session Persistence',
 
   '--info': { type: 'separator', title: 'ℹ️ Info' },
   FAQ: '❓ FAQ'
