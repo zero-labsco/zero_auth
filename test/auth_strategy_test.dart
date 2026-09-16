@@ -7,8 +7,9 @@ void main() {
   group('AuthStrategy (FakeAuthStrategy)', () {
     test('login returns a session', () async {
       final s = FakeAuthStrategy();
-      final session =
-          await s.login(const Credentials(username: 'a', password: 'b'));
+      final session = await s.login(
+        const Credentials(username: 'a', password: 'b'),
+      );
       expect(session.accessToken, isNotEmpty);
       expect(s.logoutCalled, isFalse);
     });
