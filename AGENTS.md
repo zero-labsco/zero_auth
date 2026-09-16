@@ -135,8 +135,8 @@ flutter run
 1. Bump `version` in `pubspec.yaml` (semver; major bump for breaking public API).
    **Mandatory version-bump checklist — every item MUST be updated to the new `X.Y.Z` (old string fully removed):**
    - [ ] `pubspec.yaml` → `version: X.Y.Z`
-   - [ ] `README.md`: the `^X.Y.Z` dependency constraint, the `` `X.Y.Z` `` placeholder in the GitHub install snippet, the `ref: vX.Y.Z` git ref, and the "🔔 Upgrade recommended" callout (summarize **only** what the current release changed; never reference previous versions).
-   - [ ] `README_zh.md`: the same four spots (`^X.Y.Z`, `` `X.Y.Z` ``, `ref: vX.Y.Z`, "🔔 推荐升级：" callout).
+   - [ ] `README.md`: the `^X.Y.Z` dependency constraint, the `` `X.Y.Z` `` placeholder in the GitHub install snippet, the `ref: release/vX.Y.Z` git ref, and the "🔔 Upgrade recommended" callout (summarize **only** what the current release changed; never reference previous versions).
+   - [ ] `README_zh.md`: the same four spots (`^X.Y.Z`, `` `X.Y.Z` ``, `ref: release/vX.Y.Z`, "🔔 推荐升级：" callout).
    - [ ] `CHANGELOG.md`: add a new `## X.Y.Z` section at the top, bilingual (EN bullet + indented ZH bullet) — see the existing `0.1.0` section for the house style.
    - Grep sanity check: `grep -rn "old_version" README.md README_zh.md CHANGELOG.md` must return nothing but legitimate history.
 2. **Changelog scope rule / 变更日志范围规则:** only changes to `lib/` (the published runtime behaviour) earn a CHANGELOG entry. Pure documentation updates (`README*.md`) and `example/` / `server/` changes must NOT get a CHANGELOG entry — they do not change the released package's behaviour. The single exception is a pure version-bump commit.

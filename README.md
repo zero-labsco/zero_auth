@@ -12,7 +12,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 Upgrade recommended:** `0.2.0` adds **session (de)serialization** (`AuthSession.toJson` / `AuthSession.fromJson`) so sessions survive restarts, a **file-based reference store** for server/CLI, and **opt-in proactive auto-refresh** that renews tokens before they expire. Pin `zero_auth: ^0.2.0` (or git `ref: v0.2.0`).
+> **🔔 Upgrade recommended:** `0.2.0` adds **session (de)serialization** (`AuthSession.toJson` / `AuthSession.fromJson`) so sessions survive restarts, a **file-based reference store** for server/CLI, and **opt-in proactive auto-refresh** that renews tokens before they expire. Pin `zero_auth: ^0.2.0` (or git `ref: release/v0.2.0`).
 
 🌐 **[Official Website](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[View on pub.dev](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[View on GitHub](https://github.com/zero-labsco/zero_auth)**
 
@@ -64,7 +64,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: v0.2.0   # pin a release tag, not a moving branch
+      ref: release/v0.2.0   # pin the release/vX.Y.Z branch (immutable per release)
 ```
 
 ## Usage
