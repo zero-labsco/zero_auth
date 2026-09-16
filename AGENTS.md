@@ -157,5 +157,5 @@ flutter run
 
 ## Known gaps (do not "fix" silently — raise with the maintainer)
 - No branch protection ruleset is configured yet, so the CI required checks are advisory only.
-- `README.md` / `README_zh.md` link to `CONTRIBUTING.md`, which does not exist yet.
-- No GitHub Pages docs site is deployed yet, although `pubspec.yaml` declares `documentation: https://zero-labsco.github.io/zero_auth/`. Either publish the site or drop the field before releasing.
+- `README.md` / `README_zh.md` link to `CONTRIBUTING.md`, which now exists (added alongside the docs site).
+- GitHub Pages docs site: a `.github/workflows/pages.yml` (official Actions deploy, bypassing Jekyll) exists and is pushed. Deployment still needs a one-time manual step — set **Settings → Pages → Source = GitHub Actions** — then trigger the workflow. Until then `pubspec.yaml`'s `documentation:` URL is not live.
