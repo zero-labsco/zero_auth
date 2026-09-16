@@ -1,0 +1,103 @@
+# Dependabot 配置 / Dependabot configuration
+# 自动检查依赖更新并提交 PR / Automatically check for dependency updates and open PRs
+# 文档 / Docs: https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
+version: 2
+
+updates:
+  # ========== 根项目 pub 依赖 / Root pub dependencies ==========
+  - package-ecosystem: "pub"
+    directory: "/"
+    schedule:
+      # 每周一检查更新 / Check for updates every Monday
+      interval: "weekly"
+      day: "monday"
+      timezone: "Asia/Shanghai"
+    # 按依赖类型与风险拆分分组，减少审查噪音 / Split groups by dependency type and risk
+    groups:
+      # 运行时依赖（meta）minor/patch 合并到一个 PR / Runtime deps (meta, ...)
+      pub-runtime:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      # 开发依赖（test、fake_async、flutter_lints 等）单独一组 / Dev deps in their own group
+      pub-dev:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      # 大版本始终单独 PR，便于仔细审查破坏性改动
+      # Major versions always standalone for careful breaking-change review
+      pub-major:
+        update-types:
+          - "major"
+    open-pull-requests-limit: 5
+    # 版本约束策略：保留既有 caret(^) 风格，仅提升版本号 / Preserve caret style, bump version only
+    versioning-strategy: "increase"
+    labels:
+      - "pub"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+    # ⚠️ 注意 / Note: pubspec.yaml 使用 caret 约束（例如 meta: ^1.10.0）
+    # versioning-strategy: increase 会让 Dependabot 保持 `^` 并仅提升版本号
+    # 收到首个 PR 后请验证约束风格未被改为精确版本号
+    # This project uses caret (^) constraints in pubspec.yaml (e.g. meta: ^1.10.0).
+    # `increase` keeps the `^` operator and only bumps the version number.
+
+  # ========== Example 应用 pub 依赖 / Example app pub dependencies ==========
+  # 示例应用依赖更新频率较低，改为每月检查一次 / Example app deps are updated infrequently → monthly
+  - package-ecosystem: "pub"
+    directory: "/example"
+    schedule:
+      # ⚠️ Dependabot 原生只支持 daily / weekly / monthly；`day` 字段仅 weekly 生效
+      # ⚠️ Native options are daily/weekly/monthly only; `day` only applies to weekly
+      interval: "monthly"
+      timezone: "Asia/Shanghai"
+    groups:
+      example-runtime:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      example-dev:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+      example-major:
+        update-types:
+          - "major"
+    # 每月最多提 1 个 PR / Max 1 PR per month
+    open-pull-requests-limit: 1
+    # 与根项目一致：保留 caret 约束 / Same as root: preserve caret constraints
+    versioning-strategy: "increase"
+    labels:
+      - "pub"
+      - "example"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
+  # 注意：server/ 为 zero-dependency demo 后端（dependencies / dev_dependencies 均为空），
+  # 无需 Dependabot 监控；若日后新增依赖，请复制上面的 example 段并把 directory 改为 "/server"。
+  # NOTE: server/ is a zero-dependency demo backend (both dependency maps are empty),
+  # so there is nothing for Dependabot to track. If dependencies are added later,
+  # duplicate the example block above with directory: "/server".
+
+  # ========== GitHub Actions 版本更新 / GitHub Actions updates ==========
+  # 检查 .github/workflows/ 中使用的 actions/xxx@vN 版本
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      timezone: "Asia/Shanghai"
+    groups:
+      # 所有 actions 更新聚合到一个 PR / Group all actions updates into one PR
+      all-actions:
+        patterns:
+          - "*"
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "chore(ci)"
+      include: "scope"

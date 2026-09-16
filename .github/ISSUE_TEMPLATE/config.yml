@@ -1,0 +1,14 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 提问讨论 / Discussions
+    url: https://github.com/zero-labsco/zero_auth/discussions
+    about: 使用问题、功能讨论请到 Discussions / For usage questions and feature discussions, please use Discussions
+  - name: 📖 用法与 API 文档 / Usage & API Guide
+    url: https://github.com/zero-labsco/zero_auth/blob/main/USAGE.md
+    about: 查看完整用法与 API 参考 / View the full usage and API reference
+  - name: 📦 pub.dev 包页面 / Package on pub.dev
+    url: https://pub.dev/packages/zero_auth
+    about: 查看版本、评分和安装说明 / View versions, scores, and installation instructions
+  - name: 🧩 API 文档 / API documentation
+    url: https://pub.dev/documentation/zero_auth/latest/
+    about: 查看 dartdoc API 文档 / View the generated API documentation

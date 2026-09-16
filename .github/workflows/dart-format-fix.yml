@@ -1,0 +1,90 @@
+name: Dart Format Auto-Fix
+
+# Automatically run `dart format` on PRs and push fixes back when the code is
+# not properly formatted. This keeps style consistent without reviewer nudging.
+#
+# 对 PR 自动执行 `dart format`；格式不合规时由 bot 自动提交修复，
+# 避免 reviewer 反复挑格式问题。
+on:
+  pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+  # Allow manual runs from the Actions tab (formats the default branch).
+  # 允许在 Actions 页手动触发（对默认分支执行格式化）。
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    name: Auto-format Dart code
+    runs-on: ubuntu-latest
+    steps:
+      - name: Disable autocrlf on runner
+        # Force LF everywhere for this job so committed blobs are LF, not CRLF.
+        # A CRLF blob makes `dart format` re-emit LF on the next CI run, looping.
+        # 在 job 级别强制 LF，确保提交的 blob 是 LF 而非 CRLF，避免格式循环。
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
+          git config --global core.safecrlf false
+
+      - name: Checkout PR head
+        uses: actions/checkout@v7
+        with:
+          # Use the PR's head ref so we can push fixes back to the same branch.
+          # 使用 PR 的 head ref，以便把修复推回同一分支。
+          ref: ${{ github.head_ref }}
+          # Fetch full history so renormalization can rewrite blobs if needed.
+          # 拉取完整历史，便于在需要时重新规范化 blob。
+          fetch-depth: 0
+
+      - name: Force LF on disk (pure git, no external tools)
+        # `git add --renormalize` writes LF into the index per .gitattributes,
+        # then `git checkout -f -- .` materializes that LF index onto disk.
+        # 用纯 git 强制 LF：renormalize 写入 LF 索引，再 checkout -f 落盘。
+        run: |
+          git config core.autocrlf false
+          git config core.eol lf
+          git add --renormalize .
+          git checkout -f -- .
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          # Keep in sync with ci.yml (flutter-version: '3.41.7'). The auto-format
+          # bot must run the SAME Dart formatter as CI, otherwise its committed
+          # "fixes" differ from what CI expects and the loop never ends.
+          # 与 ci.yml 保持一致（flutter-version: '3.41.7'）。
+          flutter-version: '3.41.7'
+          cache: true
+
+      - name: Format package
+        run: dart format .
+
+      - name: Format example app
+        working-directory: example
+        run: dart format .
+
+      - name: Format demo backend
+        working-directory: server
+        run: dart format .
+
+      - name: Commit and push fixes
+        # Stage with --renormalize (forces LF into the index) and commit WITHOUT
+        # -a, so only the LF index is committed — never the raw working tree.
+        # 用 --renormalize 暂存（强制 LF 入索引），且 commit 不用 -a。
+        run: |
+          git add --renormalize .
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git commit -m "style: auto-format with dart format"
+            git push
+          else
+            echo "No formatting changes needed."
+          fi

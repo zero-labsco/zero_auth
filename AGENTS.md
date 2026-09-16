@@ -93,7 +93,17 @@ Notes / 说明:
 - The PR **title** stays English-only and MUST follow Conventional Commits. Bilingual content goes in the body only. PR **标题**仅用英文，且必须符合约定式提交；双语内容只放在正文。
 
 ### CI
-- **Not configured yet** — this repo has no `.github/workflows/`. When adding CI, mirror the sibling project `zero_inspector_kit`: `ci.yml` (`flutter analyze` + `flutter test` + pana score check), `pr-title-check.yml` (`amannn/action-semantic-pull-request@v6`, allowed types `feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert`), `dart-format-fix.yml`, `link-check.yml` (README/CHANGELOG link scan), and `pub-publish.yml` (triggered by the `vX.Y.Z` **tag**, publishing via `k-paxian/dart-package-publisher@v1.6` with the `PUB_CREDENTIALS_JSON` secret; do NOT pass OIDC fields).
+- CI lives in `.github/workflows/` and mirrors the sibling project `zero_network_kit`. Keep the two in sync when a workflow changes.
+  CI 位于 `.github/workflows/`，与兄弟项目 `zero_network_kit` 保持一致；改动时请同步两边。
+  - `ci.yml` — `path-filter` (dorny/paths-filter) → `analyze-and-test` (package: `dart format` + `dart analyze` + `dart test`; example: `flutter analyze` + `flutter test`), `server-check` (only when `server/**` changed), `pana-check` (pana score ≥ 120). Docs-only PRs still trigger the workflow but the heavy jobs skip green, so branch-protection required checks always resolve.
+  - `pr-title-check.yml` — `amannn/action-semantic-pull-request@v6`, allowed types `feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert`; skips the `github-actions[bot]` sync commit from the format bot.
+  - `dart-format-fix.yml` — auto-runs `dart format` on PRs (package + `example/` + `server/`) and pushes fixes back.
+  - `link-check.yml` — lychee scan of `README.md`, `README_zh.md`, `USAGE.md`, `CHANGELOG.md`, `docs/**`.
+  - `dependabot-pr-bilingual.yml` — appends a bilingual (EN/ZH) body to Dependabot PRs; `.github/dependabot.yml` tracks pub deps (root weekly, `example/` monthly) and GitHub Actions (weekly).
+  - `stale.yml` — marks issues/PRs stale after 60 days.
+  - `pub-publish.yml` — triggered by the `vX.Y.Z` **tag**; reuses `ci.yml`, verifies `pubspec.yaml` version == tag and that `CHANGELOG.md` has a `## X.Y.Z` entry, then publishes via `k-paxian/dart-package-publisher@v1.6` with the `PUB_CREDENTIALS_JSON` secret (do NOT pass OIDC fields) and creates the GitHub Release.
+- **Pinned toolchain:** every workflow that runs `dart format` pins Flutter `3.41.7` (`subosito/flutter-action@v2`). Keep all pins identical, otherwise the format bot and CI disagree and loop forever.
+  固定工具链：所有跑 `dart format` 的 workflow 都固定 Flutter `3.41.7`；必须保持一致，否则格式化机器人与 CI 会互相打架、无限循环。
 - Whether or not CI exists, always run the local checks in "Release and publish" before pushing.
 
 ### Local verification (always run before pushing)
@@ -145,6 +155,7 @@ flutter run
 - [ ] For releases, follow the **Mandatory version-bump checklist** above and tag `vX.Y.Z`.
 
 ## Known gaps (do not "fix" silently — raise with the maintainer)
-- No `.github/workflows/` yet; no automated CI, PR-title check or pub publish.
+- No branch protection ruleset is configured yet, so the CI required checks are advisory only.
 - `README.md` / `README_zh.md` link to `CONTRIBUTING.md`, which does not exist yet.
+- `.github/ISSUE_TEMPLATE/config.yml` points at `zero-labsco/zero_auth`, while `README*.md` / `pubspec.yaml` use `zero-foundation/zero_auth`; align the org once the rename settles.
 - No GitHub Pages docs site yet, although `pubspec.yaml` declares `documentation: https://zero-foundation.github.io/zero_auth/`.

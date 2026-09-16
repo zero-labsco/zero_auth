@@ -1,0 +1,50 @@
+name: PR Title Check
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - edited
+      - reopened
+      - synchronize
+
+permissions:
+  pull-requests: read
+
+jobs:
+  check-title:
+    name: Check PR Title (Conventional Commits)
+    runs-on: ubuntu-latest
+    # Re-run on `synchronize` so the title check is reported again on the new
+    # head commit (otherwise it shows as pending/yellow after a human re-push).
+    # Skip the bot's own sync commit from `dart-format-fix` to avoid a loop and
+    # to keep the status green: the title never changes on a format-only push.
+    # 恢复 `synchronize`：人类再次 push 时，标题检查会在新 head commit 上重跑；
+    # 同时用 actor 条件跳过 dart-format-fix 的 bot 同步提交，避免循环触发。
+    if: github.actor != 'github-actions[bot]'
+    steps:
+      - name: Validate PR title format
+        uses: amannn/action-semantic-pull-request@v6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # 允许的提交类型 / Allowed commit types
+          types: |
+            feat
+            fix
+            docs
+            style
+            refactor
+            perf
+            test
+            build
+            ci
+            chore
+            revert
+          # 不强制 scope / Scope is optional
+          requireScope: false
+          # 忽略特定标签的 PR（如 dependabot）
+          # Ignore PRs with specific labels
+          ignoreLabels: |
+            dependencies
+            github-actions
