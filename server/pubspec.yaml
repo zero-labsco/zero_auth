@@ -1,0 +1,10 @@
+name: zero_auth_example_server
+description: Simple standalone Dart backend for the zero_auth example app.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.4.0
+
+dependencies: {}
+
+dev_dependencies: {}

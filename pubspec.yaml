@@ -1,0 +1,25 @@
+name: zero_auth
+description: Backend-agnostic auth state machine & session lifecycle for Dart/Flutter.
+license: MPL-2.0
+version: 0.1.0
+homepage: https://github.com/zero-foundation/zero_auth
+repository: https://github.com/zero-foundation/zero_auth
+documentation: https://zero-foundation.github.io/zero_auth/
+issue_tracker: https://github.com/zero-foundation/zero_auth/issues
+topics:
+  - authentication
+  - auth
+  - jwt
+  - token
+  - flutter
+environment:
+  sdk: ^3.4.0          # Dart 3 sealed class 需要
+  flutter: '>=3.0.0'   # 仅约束，运行时不依赖 Flutter 原生
+
+dependencies:
+  meta: ^1.10.0
+
+dev_dependencies:
+  test: ^1.24.0
+  fake_async: ^1.3.0   # 测试自动刷新定时器
+  flutter_lints: ^4.0.0 # analysis_options.yaml 的 include 需要
