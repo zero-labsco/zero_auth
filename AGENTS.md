@@ -24,7 +24,7 @@ This file defines the architecture, coding conventions, and required workflows f
   - `error/` — the error kernel: `app_exception.dart` (`AppException`), `result.dart` (`Result<T>` = `Ok` / `Err`), `error.dart` (barrel).
 - `test/` — unit tests written with `package:test` (NOT `flutter_test`); `fake_async` is used for timer-driven refresh behaviour; `fake_strategy.dart` is the shared test double.
 - `example/` — Flutter example app (Android / iOS / Web / Windows). `main.dart` (state machine UI + backend toggle), `dio_interceptor.dart` (`AuthInterceptor`, a ready-to-copy Dio integration), `secure_token_store.dart` (`flutter_secure_storage` reference `TokenStore`; not wired into `main.dart`, it is reference material for consumers).
-- `server/` — a zero-dependency `dart:io` demo backend used by the example (`dart run bin/server.dart`, port `8080`); endpoints `/login`, `/refresh`, `/logout`, `/me`; any username, password must be `b`; CORS enabled.
+- `server/` — a zero-dependency `dart:io` demo backend used by the example (`dart run bin/server.dart`, port `8080`); endpoints `/login`, `/refresh`, `/logout`, `/me`; any username, password must be `b`; CORS enabled. It is repo-only and **not** shipped to pub.dev (excluded via `.pubignore`).
 - `zero_auth_design.md` — repo-internal design notes (excluded from the published package).
 
 ### Hard constraints on `lib/`
@@ -132,7 +132,7 @@ flutter run
 3. Verify locally (see "Local verification" above), including `dart pub publish --dry-run` reporting **0 warnings**.
 4. Commit on a branch, open a PR, merge to `main`.
 5. Tag to publish: `git tag vX.Y.Z <commit> && git push origin vX.Y.Z`. Never create a **branch** named `vX.Y.Z` — it collides with the tag refspec.
-- `.pubignore` already keeps `docs/`, `build/`, `.codebuddy/`, `AGENTS.md`, `CONTRIBUTING.md`, `TODO.md`, `wiki/` and `zero_auth_design.md` out of the published tarball. If the demo backend should not ship to pub.dev either, add `server/` there before the first publish.
+- `.pubignore` keeps `server/` (demo backend), `docs/`, `build/`, `.codebuddy/`, `AGENTS.md`, `CONTRIBUTING.md`, `TODO.md`, `wiki/` and `zero_auth_design.md` out of the published tarball. `example/` is intentionally published so consumers can browse a working integration. After touching `.pubignore`, re-check with `dart pub publish --dry-run` (must report **0 warnings**).
 
 ## New feature development checklist
 - [ ] Confirm the change against `effective_dart` and the existing `lib/src/` structure (no `dart:io`, no Flutter imports in `lib/`).
