@@ -28,7 +28,7 @@ final class AuthManager implements AuthTokenSource {
   /// Creates a manager. Defaults to [InMemoryTokenStore].
   /// 创建管理器，默认使用 [InMemoryTokenStore]。
   AuthManager({required this.strategy, TokenStore? tokenStore})
-    : tokenStore = tokenStore ?? InMemoryTokenStore();
+      : tokenStore = tokenStore ?? InMemoryTokenStore();
 
   /// The current state (always available, replay-last).
   /// 当前状态（始终可用，重放最近值）。
