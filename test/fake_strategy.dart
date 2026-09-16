@@ -9,14 +9,14 @@ final class FakeAuthStrategy implements AuthStrategy {
   bool logoutCalled = false;
 
   FakeAuthStrategy({AuthSession? session})
-      : nextSession = session ?? _default();
+    : nextSession = session ?? _default();
 
   static AuthSession _default() => const AuthSession(
-        accessToken: 'access',
-        refreshToken: RefreshToken('refresh'),
-        userId: 'u1',
-        displayName: 'User',
-      );
+    accessToken: 'access',
+    refreshToken: RefreshToken('refresh'),
+    userId: 'u1',
+    displayName: 'User',
+  );
 
   @override
   Future<AuthSession> login(Credentials credentials) async {

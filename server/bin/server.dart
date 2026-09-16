@@ -48,11 +48,10 @@ Future<void> _handle(HttpRequest request) async {
             'displayName': 'Demo User',
           });
         } else {
-          _send(
-            request,
-            401,
-            {'code': 'invalid_credentials', 'message': 'Invalid password'},
-          );
+          _send(request, 401, {
+            'code': 'invalid_credentials',
+            'message': 'Invalid password',
+          });
         }
       case ('POST', '/refresh'):
         final body = await _jsonBody(request);
@@ -66,31 +65,25 @@ Future<void> _handle(HttpRequest request) async {
             'displayName': 'Demo User',
           });
         } else {
-          _send(
-            request,
-            401,
-            {
-              'code': 'invalid_refresh_token',
-              'message': 'Invalid refresh token',
-            },
-          );
+          _send(request, 401, {
+            'code': 'invalid_refresh_token',
+            'message': 'Invalid refresh token',
+          });
         }
       case ('POST', '/logout'):
         _send(request, 200, {'ok': true});
       case ('GET', '/me'):
         final auth = request.headers.value('authorization');
         if (auth != null && auth.startsWith('Bearer demo-')) {
-          _send(
-            request,
-            200,
-            {'userId': 'demo-user', 'displayName': 'Demo User'},
-          );
+          _send(request, 200, {
+            'userId': 'demo-user',
+            'displayName': 'Demo User',
+          });
         } else {
-          _send(
-            request,
-            401,
-            {'code': 'unauthorized', 'message': 'Unauthorized'},
-          );
+          _send(request, 401, {
+            'code': 'unauthorized',
+            'message': 'Unauthorized',
+          });
         }
       default:
         _send(request, 404, {'code': 'not_found', 'message': 'Not Found'});

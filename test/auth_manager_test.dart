@@ -33,27 +33,29 @@ void main() {
   });
 
   group('AuthManager — login', () {
-    test('emits Authenticating then Authenticated and saves the session',
-        () async {
-      final store = InMemoryTokenStore();
-      final manager = AuthManager(
-        strategy: FakeAuthStrategy(),
-        tokenStore: store,
-      );
-      final states = <AuthState>[];
-      final sub = manager.state.listen(states.add);
+    test(
+      'emits Authenticating then Authenticated and saves the session',
+      () async {
+        final store = InMemoryTokenStore();
+        final manager = AuthManager(
+          strategy: FakeAuthStrategy(),
+          tokenStore: store,
+        );
+        final states = <AuthState>[];
+        final sub = manager.state.listen(states.add);
 
-      await manager.login(const Credentials(username: 'a', password: 'b'));
-      await Future<void>.delayed(Duration.zero);
+        await manager.login(const Credentials(username: 'a', password: 'b'));
+        await Future<void>.delayed(Duration.zero);
 
-      expect(manager.current, isA<Authenticated>());
-      expect(manager.currentSession, isNotNull);
-      expect(manager.accessToken, 'access');
-      expect(await store.load(), isNotNull);
-      expect(states, contains(isA<Authenticating>()));
-      expect(states.last, isA<Authenticated>());
-      await sub.cancel();
-    });
+        expect(manager.current, isA<Authenticated>());
+        expect(manager.currentSession, isNotNull);
+        expect(manager.accessToken, 'access');
+        expect(await store.load(), isNotNull);
+        expect(states, contains(isA<Authenticating>()));
+        expect(states.last, isA<Authenticated>());
+        await sub.cancel();
+      },
+    );
 
     test('failure emits AuthError and throws', () async {
       final strategy = FakeAuthStrategy()
@@ -76,28 +78,32 @@ void main() {
   });
 
   group('AuthManager — logout', () {
-    test('clears the store, calls the strategy, emits Unauthenticated',
-        () async {
-      final strategy = FakeAuthStrategy();
-      final store = InMemoryTokenStore();
-      final manager = AuthManager(strategy: strategy, tokenStore: store);
+    test(
+      'clears the store, calls the strategy, emits Unauthenticated',
+      () async {
+        final strategy = FakeAuthStrategy();
+        final store = InMemoryTokenStore();
+        final manager = AuthManager(strategy: strategy, tokenStore: store);
 
-      await manager.login(const Credentials(username: 'a', password: 'b'));
-      await manager.logout();
+        await manager.login(const Credentials(username: 'a', password: 'b'));
+        await manager.logout();
 
-      expect(manager.current, const Unauthenticated());
-      expect(manager.currentSession, isNull);
-      expect(strategy.logoutCalled, isTrue);
-      expect(await store.load(), isNull);
-    });
+        expect(manager.current, const Unauthenticated());
+        expect(manager.currentSession, isNull);
+        expect(strategy.logoutCalled, isTrue);
+        expect(await store.load(), isNull);
+      },
+    );
   });
 
   group('AuthManager — restore', () {
     test('loads a persisted session', () async {
       final store = InMemoryTokenStore();
       await store.save(const AuthSession(accessToken: 'a', userId: 'u'));
-      final manager =
-          AuthManager(strategy: FakeAuthStrategy(), tokenStore: store);
+      final manager = AuthManager(
+        strategy: FakeAuthStrategy(),
+        tokenStore: store,
+      );
 
       await manager.restore();
       expect(manager.current, isA<Authenticated>());
