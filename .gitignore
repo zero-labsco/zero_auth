@@ -29,3 +29,8 @@ migrate_working_dir/
 .flutter-plugins-dependencies
 **/build/
 /coverage/
+
+# Nextra documentation site build artifacts (the built site is synced to docs/)
+website/node_modules/
+website/.next/
+website/out/

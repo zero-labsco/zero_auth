@@ -20,3 +20,7 @@ build/
 
 # Demo backend used only by the example app — not part of the published package.
 server/
+
+# Nextra documentation site source — publishes to docs/ via the build pipeline,
+# not shipped as package source. Its build output (website/out) is git-ignored.
+website/
