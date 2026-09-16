@@ -53,7 +53,7 @@ This file defines the architecture, coding conventions, and required workflows f
 ## Workflows
 
 ### Branching and PRs
-- Branch from `main` with a typed prefix: `feat/`, `fix/`, `docs/`, `ci/`, `chore/`, etc.
+- Branch from `main` with a typed prefix: `feat/`, `fix/`, `docs/`, `ci/`, `chore/`, `release/`, etc. `release/vX.Y.Z` is the immutable branch for a shipped version (see "Release and publish").
 - Never push directly to `main`.
 - PR titles are **English-only** and MUST follow Conventional Commits.
 
@@ -141,8 +141,9 @@ flutter run
    - Grep sanity check: `grep -rn "old_version" README.md README_zh.md CHANGELOG.md` must return nothing but legitimate history.
 2. **Changelog scope rule / 变更日志范围规则:** only changes to `lib/` (the published runtime behaviour) earn a CHANGELOG entry. Pure documentation updates (`README*.md`) and `example/` / `server/` changes must NOT get a CHANGELOG entry — they do not change the released package's behaviour. The single exception is a pure version-bump commit.
 3. Verify locally (see "Local verification" above), including `dart pub publish --dry-run` reporting **0 warnings**.
-4. Commit on a branch, open a PR, merge to `main`.
-5. Tag to publish: `git tag vX.Y.Z <commit> && git push origin vX.Y.Z`. Never create a **branch** named `vX.Y.Z` — it collides with the tag refspec.
+4. Merge the version bump to `main` (via PR, or directly if the maintainer permits).
+5. Cut the release branch from `main`: `git checkout -b release/vX.Y.Z main`. The `release/vX.Y.Z` branch is the immutable source for that version; post-release hotfixes are applied here and re-tagged, never on `main`.
+6. Tag to publish on the release branch: `git tag vX.Y.Z && git push origin release/vX.Y.Z && git push origin vX.Y.Z`. The `vX.Y.Z` **tag** (not a branch) triggers `pub-publish.yml` and publishes to pub.dev — this action is **irreversible**. Always use the `release/vX.Y.Z` prefix for the branch so it never collides with the `vX.Y.Z` tag refspec.
 - `.pubignore` keeps `server/` (demo backend), `docs/`, `build/`, `.codebuddy/`, `AGENTS.md`, `CONTRIBUTING.md`, `TODO.md`, `wiki/` and `zero_auth_design.md` out of the published tarball. `example/` is intentionally published so consumers can browse a working integration. After touching `.pubignore`, re-check with `dart pub publish --dry-run` (must report **0 warnings**).
 
 ## New feature development checklist
@@ -153,7 +154,7 @@ flutter run
 - [ ] Run `dart format .`, `dart analyze`, `flutter analyze`, `flutter test` locally.
 - [ ] Use a typed branch (`feat/...`) and an English Conventional Commits PR title.
 - [ ] Mirror user-facing changes in `README.md` **and** `README_zh.md`.
-- [ ] For releases, follow the **Mandatory version-bump checklist** above and tag `vX.Y.Z`.
+- [ ] For releases, follow the **Mandatory version-bump checklist** above, cut `release/vX.Y.Z` from `main`, and tag `vX.Y.Z` to publish.
 
 ## Known gaps (do not "fix" silently — raise with the maintainer)
 - No branch protection ruleset is configured yet, so the CI required checks are advisory only.

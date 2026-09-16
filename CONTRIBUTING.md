@@ -43,7 +43,8 @@ cd ..\server && dart analyze
 ## Branching & pull requests
 
 - Branch from `main` with a typed prefix: `feat/`, `fix/`, `docs/`, `ci/`,
-  `chore/`, etc.
+  `chore/`, `release/`, etc. (`release/vX.Y.Z` is the branch for a shipped
+  version — see "Releasing".)
 - **Never push directly to `main`.**
 - PR titles are **English-only** and MUST follow
   [Conventional Commits](https://www.conventionalcommits.org/):
@@ -76,7 +77,15 @@ Bumping the version is the maintainer's call (see `AGENTS.md` for the mandatory
 version-bump checklist). In short: update `version` in `pubspec.yaml`, the four
 spots in both `README.md` and `README_zh.md`, and add a bilingual `## X.Y.Z`
 section at the top of `CHANGELOG.md` (only `lib/` behaviour changes earn a
-changelog entry). Then tag `vX.Y.Z` on `main` to trigger the publish workflow.
+changelog entry).
 
-> Note: do **not** create a branch named `vX.Y.Z` — it collides with the tag
-> refspec.
+Release flow:
+
+1. Merge the version bump to `main`.
+2. Cut the release branch: `git checkout -b release/vX.Y.Z main`.
+3. Tag and publish: `git tag vX.Y.Z && git push origin release/vX.Y.Z && git push origin vX.Y.Z`.
+   The `vX.Y.Z` **tag** triggers the publish workflow and publishes to pub.dev —
+   this is irreversible, so only tag when you intend to ship.
+
+> Note: the branch is `release/vX.Y.Z`, **not** `vX.Y.Z` — a branch named
+> `vX.Y.Z` collides with the tag refspec.
