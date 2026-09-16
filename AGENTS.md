@@ -36,7 +36,7 @@ This file defines the architecture, coding conventions, and required workflows f
 - **Rethrow after emit.** `login()` / `register()` emit `AuthError` and then rethrow; callers (and the example app) must handle or deliberately swallow that rethrow.
 
 ## Dependencies and SDK constraints
-- Dart SDK `^3.4.0` (sealed classes); Flutter `>=3.0.0` is a **constraint only** — the runtime does not depend on Flutter.
+- Dart SDK `^3.4.0` (sealed classes) is the **only** SDK constraint. The package is pure Dart and does **not** declare `flutter:` in `environment` — declaring it would mis-tag the package as "Flutter" on pub.dev and force pure-Dart (CLI/server) consumers to install the Flutter SDK for no reason. A Dart package is usable from Flutter projects automatically, so no Flutter constraint is needed.
 - Runtime deps: `meta` only. Resist adding dependencies; the package must stay backend- and framework-agnostic.
 - Dev deps: `test`, `fake_async` (refresh timers), `flutter_lints ^4` (required by `analysis_options.yaml`).
 - Keep caret (`^`) constraints; do not pin exact versions without reason.

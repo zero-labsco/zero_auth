@@ -13,8 +13,7 @@ topics:
   - token
   - flutter
 environment:
-  sdk: ^3.4.0          # Dart 3 sealed class 需要
-  flutter: '>=3.0.0'   # 仅约束，运行时不依赖 Flutter 原生
+  sdk: ^3.4.0          
 
 dependencies:
   meta: ^1.10.0
