@@ -1,0 +1,44 @@
+name: Deploy docs to GitHub Pages
+
+# Publish the pre-built Nextra site in `docs/` to GitHub Pages.
+# Uses the official Actions toolchain (upload-pages-artifact + deploy-pages) so
+# the artifact is served verbatim — no Jekyll processing, which would strip the
+# underscore-prefixed `_next/` asset directory and break the site's CSS/JS.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload docs artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
