@@ -8,7 +8,7 @@ import 'dart:io';
 ///   POST /login   {username, password}              -> 200 tokens, or 401 (password != 'b')
 ///   POST /refresh {refreshToken}                   -> 200 new tokens, or 401
 ///   POST /logout                                  -> 200 {ok: true}
-///   GET  /me      (Authorization: Bearer <token>)  -> 200 {userId, displayName}, or 401
+///   GET  /me      (Authorization: `Bearer <token>`) -> 200 {userId, displayName}, or 401
 ///
 /// Run with `dart run` from this folder, then start the example app.
 /// On an Android emulator use http://10.0.2.2:8080 instead.
