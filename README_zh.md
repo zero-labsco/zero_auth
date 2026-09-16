@@ -14,7 +14,7 @@
 
 > **🔔 推荐升级：** `0.1.0` 是 `zero_auth` 的首个公开版本，也是建议锁定的版本——它提供显式的认证状态机（`Unauthenticated → Authenticating → Authenticated → AuthError`）、单飞刷新与静默恢复、后端无关的 `AuthStrategy` 边界、可插拔的 `TokenStore` 持久化、统一的 `AppException` 错误，以及可直接用于 Dio 拦截器的 `AuthTokenSource`。请使用 `zero_auth: ^0.1.0`（Git 方式用 `ref: v0.1.0`）。
 
-🌐 **[官方网站](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[在 pub.dev 查看](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[查看 GitHub 仓库](https://github.com/zero-foundation/zero_auth)**
+🌐 **[官方网站](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[在 pub.dev 查看](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[查看 GitHub 仓库](https://github.com/zero-labsco/zero_auth)**
 
 ---
 
@@ -61,7 +61,7 @@ dependencies:
 dependencies:
   zero_auth:
     git:
-      url: https://github.com/zero-foundation/zero_auth.git
+      url: https://github.com/zero-labsco/zero_auth.git
       ref: v0.1.0   # 固定到发布标签，而不是会移动的分支
 ```
 
@@ -190,9 +190,9 @@ flutter run
 
 欢迎贡献代码！提交 issue 或 pull request 前，请先阅读[贡献指南](CONTRIBUTING.md)。
 
-- 🐛 [报告 Bug](https://github.com/zero-foundation/zero_auth/issues/new?template=bug_report.md)
-- 💡 [功能建议](https://github.com/zero-foundation/zero_auth/issues/new?template=feature_request.md)
-- 💬 [参与讨论](https://github.com/zero-foundation/zero_auth/discussions)
+- 🐛 [报告 Bug](https://github.com/zero-labsco/zero_auth/issues/new?template=bug_report.md)
+- 💡 [功能建议](https://github.com/zero-labsco/zero_auth/issues/new?template=feature_request.md)
+- 💬 [参与讨论](https://github.com/zero-labsco/zero_auth/discussions)
 
 ## 许可证
 

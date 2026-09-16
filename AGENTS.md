@@ -157,5 +157,4 @@ flutter run
 ## Known gaps (do not "fix" silently — raise with the maintainer)
 - No branch protection ruleset is configured yet, so the CI required checks are advisory only.
 - `README.md` / `README_zh.md` link to `CONTRIBUTING.md`, which does not exist yet.
-- `.github/ISSUE_TEMPLATE/config.yml` points at `zero-labsco/zero_auth`, while `README*.md` / `pubspec.yaml` use `zero-foundation/zero_auth`; align the org once the rename settles.
-- No GitHub Pages docs site yet, although `pubspec.yaml` declares `documentation: https://zero-foundation.github.io/zero_auth/`.
+- No GitHub Pages docs site is deployed yet, although `pubspec.yaml` declares `documentation: https://zero-labsco.github.io/zero_auth/`. Either publish the site or drop the field before releasing.

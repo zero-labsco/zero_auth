@@ -14,7 +14,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 
 > **🔔 Upgrade recommended:** `0.1.0` is the first public release of `zero_auth` and the version to pin — it ships the explicit auth state machine (`Unauthenticated → Authenticating → Authenticated → AuthError`), single-flight refresh with silent restore, the backend-agnostic `AuthStrategy` boundary, pluggable `TokenStore` persistence, unified `AppException` errors, and `AuthTokenSource` for Dio interceptors. Use `zero_auth: ^0.1.0` (or git `ref: v0.1.0`).
 
-🌐 **[Official Website](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[View on pub.dev](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[View on GitHub](https://github.com/zero-foundation/zero_auth)**
+🌐 **[Official Website](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[View on pub.dev](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[View on GitHub](https://github.com/zero-labsco/zero_auth)**
 
 ---
 
@@ -61,7 +61,7 @@ dependencies:
 dependencies:
   zero_auth:
     git:
-      url: https://github.com/zero-foundation/zero_auth.git
+      url: https://github.com/zero-labsco/zero_auth.git
       ref: v0.1.0   # pin a release tag, not a moving branch
 ```
 
@@ -190,9 +190,9 @@ The manager holds no UI, backend, or native code. Wire your backend via `AuthStr
 
 Contributions are welcome! Please read the [Contributing Guidelines](CONTRIBUTING.md) before submitting issues or pull requests.
 
-- 🐛 [Report a Bug](https://github.com/zero-foundation/zero_auth/issues/new?template=bug_report.md)
-- 💡 [Request a Feature](https://github.com/zero-foundation/zero_auth/issues/new?template=feature_request.md)
-- 💬 [Join Discussions](https://github.com/zero-foundation/zero_auth/discussions)
+- 🐛 [Report a Bug](https://github.com/zero-labsco/zero_auth/issues/new?template=bug_report.md)
+- 💡 [Request a Feature](https://github.com/zero-labsco/zero_auth/issues/new?template=feature_request.md)
+- 💬 [Join Discussions](https://github.com/zero-labsco/zero_auth/discussions)
 
 ## License
 
