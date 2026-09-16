@@ -41,9 +41,8 @@ class _DemoStrategy implements AuthStrategy {
   Future<void> logout(SessionHandle handle) async {}
 
   @override
-  Future<AuthSession> refresh(RefreshToken token) async => login(
-        const Credentials(username: 'demo-user', password: _validPassword),
-      );
+  Future<AuthSession> refresh(RefreshToken token) async =>
+      login(const Credentials(username: 'demo-user', password: _validPassword));
 }
 
 /// Real HTTP backend strategy. Talks to the Dart server in `../../server`.
@@ -57,14 +56,14 @@ class _HttpAuthStrategy implements AuthStrategy {
       res.data as Map<String, dynamic>;
 
   AuthSession _toSession(Map<String, dynamic> data) => AuthSession(
-        accessToken: data['accessToken'] as String,
-        refreshToken: RefreshToken(data['refreshToken'] as String),
-        expiresAt: data['expiresIn'] != null
-            ? DateTime.now().add(Duration(seconds: data['expiresIn'] as int))
-            : null,
-        userId: data['userId'] as String,
-        displayName: data['displayName'] as String,
-      );
+    accessToken: data['accessToken'] as String,
+    refreshToken: RefreshToken(data['refreshToken'] as String),
+    expiresAt: data['expiresIn'] != null
+        ? DateTime.now().add(Duration(seconds: data['expiresIn'] as int))
+        : null,
+    userId: data['userId'] as String,
+    displayName: data['displayName'] as String,
+  );
 
   @override
   Future<AuthSession> login(Credentials credentials) async {
@@ -185,9 +184,9 @@ class _DemoAppState extends State<DemoApp> {
   }
 
   void _toggleBackend(bool value) => setState(() {
-        _useBackend = value;
-        _init();
-      });
+    _useBackend = value;
+    _init();
+  });
 
   /// Runs an auth action and swallows the rethrown error: [AuthManager] already
   /// surfaces it as an [AuthError] state, so there is nothing left to handle.
@@ -203,14 +202,14 @@ class _DemoAppState extends State<DemoApp> {
     try {
       final res = await _dio.get('$_baseUrl/me');
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('GET /me -> ${res.data}')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('GET /me -> ${res.data}')));
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('GET /me failed: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('GET /me failed: $e')));
     }
   }
 
@@ -261,8 +260,10 @@ class _DemoAppState extends State<DemoApp> {
                     const SizedBox(height: 8),
                   ],
                   if (error != null)
-                    Text('error: ${error.message} (${error.code})',
-                        style: const TextStyle(color: Colors.red)),
+                    Text(
+                      'error: ${error.message} (${error.code})',
+                      style: const TextStyle(color: Colors.red),
+                    ),
                   const SizedBox(height: 24),
                   if (!authed) ...[
                     TextField(

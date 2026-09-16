@@ -26,11 +26,7 @@ abstract class AppException implements Exception {
   /// 底层原因，保留用于调试 / 日志。
   final Object? cause;
 
-  const AppException(
-    this.message, {
-    this.code,
-    this.cause,
-  });
+  const AppException(this.message, {this.code, this.cause});
 
   @override
   String toString() {

@@ -15,10 +15,10 @@ class AuthException extends AppException {
   final AuthFail fail;
 
   AuthException.fromFail(this.fail)
-      : super(fail.message, code: fail.code, cause: fail.cause);
+    : super(fail.message, code: fail.code, cause: fail.cause);
 
   /// Convenience constructor for manager-internal failures.
   /// 供管理器内部失败使用的便捷构造。
   AuthException(String message, {String? code, Object? cause})
-      : this.fromFail(AuthFail(message, code: code, cause: cause));
+    : this.fromFail(AuthFail(message, code: code, cause: cause));
 }
