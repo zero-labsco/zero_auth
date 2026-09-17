@@ -117,6 +117,38 @@ cd ..\server && dart analyze  # demo backend
 cd d:\FlutterProgram\zero_auth && dart pub publish --dry-run   # 0 warnings
 ```
 
+### Docs site preflight (always run before pushing `website/**`)
+
+The Pages site is **pre-built**: `pages.yml` uploads `docs/` verbatim and never
+builds `website/`. `docs/` is regenerated only by the git pre-commit hook, so an
+uninstalled hook silently ships a stale site — missing pages, and an outdated
+version on the Installation page because `__ZERO_AUTH_VERSION__` is injected at
+build time.
+文档站是**预先构建**的：`pages.yml` 原样上传 `docs/`，从不构建 `website/`。`docs/`
+只由 git pre-commit hook 重建，hook 未安装会导致线上静默停留在旧站点——缺页面，且安装
+页版本号过期（`__ZERO_AUTH_VERSION__` 是在构建时注入的）。
+
+```powershell
+# Once per clone — installs the hook that rebuilds & syncs docs/.
+# 每个克隆仅需一次——安装负责重建并同步 docs/ 的 hook。
+npm --prefix website run setup-hook
+
+# Sanity check — this must return True.
+# 检查——必须返回 True。
+Test-Path .git\hooks\pre-commit
+
+# Recovery — website/ already committed and docs/ still stale.
+# 补救——website/ 改动已提交、docs/ 仍是旧的。
+node website/scripts/sync-docs.mjs --force
+```
+
+> **Symptom → cause / 症状 → 原因:** you changed `website/**` (or bumped the
+> version) but `git status` shows no `docs/` changes ⇒ the hook is missing. Run
+> the setup command above, then the `--force` sync once to catch up.
+>
+> 你改了 `website/**`（或升了版本号）而 `git status` 里没有 `docs/` 变化 ⇒ hook 未安装。
+> 先执行上面的安装命令，再跑一次 `--force` 补构建。
+
 ### Running the demo end to end
 ```powershell
 # Terminal 1 — demo backend
