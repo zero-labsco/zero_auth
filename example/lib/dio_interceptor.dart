@@ -17,3 +17,27 @@ final class AuthInterceptor extends Interceptor {
     handler.next(options);
   }
 }
+
+/// Variant that never sends an expired token: when the session has expired it
+/// transparently renews it through [AuthManager.validAccessToken] (which reuses
+/// the single-flight refresh) before attaching the header.
+///
+/// Extends [QueuedInterceptor] so concurrent requests wait for one shared
+/// refresh instead of each triggering its own.
+final class RefreshingAuthInterceptor extends QueuedInterceptor {
+  RefreshingAuthInterceptor(this.manager);
+
+  final AuthManager manager;
+
+  @override
+  void onRequest(
+    RequestOptions options,
+    RequestInterceptorHandler handler,
+  ) async {
+    final token = await manager.validAccessToken();
+    if (token != null) {
+      options.headers['Authorization'] = 'Bearer $token';
+    }
+    handler.next(options);
+  }
+}

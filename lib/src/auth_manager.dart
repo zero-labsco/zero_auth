@@ -8,6 +8,24 @@ import 'error/app_exception.dart';
 import 'exceptions.dart';
 import 'token_store.dart';
 
+/// Decides whether a failed [AuthManager.refresh] must sign the user out.
+/// 决定一次失败的 [AuthManager.refresh] 是否必须让用户登出。
+///
+/// Returning `true` clears the persisted session and lands the manager on
+/// [Unauthenticated]; returning `false` keeps the session so a later attempt can
+/// retry (the failure is still reported through the state stream).
+/// 返回 `true` 会清空持久化会话并使管理器落到 [Unauthenticated]；返回 `false` 保留会话
+/// 以便稍后重试（该失败仍会通过状态流上报）。
+typedef RefreshFailurePolicy = bool Function(AppException error);
+
+/// Default policy: failures that can never succeed again (expired or revoked
+/// grants, rejected credentials) sign the user out, while transient failures
+/// (network hiccups, 5xx) keep the session so it can be retried.
+/// 默认策略：注定无法重试成功的失败（授权过期 / 被吊销、凭据被拒）会让用户登出，
+/// 而瞬时失败（网络抖动、5xx）保留会话以供重试。
+bool defaultRefreshFailurePolicy(AppException error) =>
+    error is SessionExpiredException || error is InvalidCredentialsException;
+
 /// Orchestrates the auth state machine and session lifecycle.
 ///
 /// A pure-Dart, headless core: wire your backend via [AuthStrategy] and your
@@ -25,6 +43,13 @@ final class AuthManager implements AuthTokenSource {
 
   Completer<AuthSession>? _refreshCompleter;
   Timer? _autoRefreshTimer;
+  bool _disposed = false;
+
+  /// Bumped on [logout] / [dispose]. Work started before a bump is dropped, so a
+  /// late refresh can never resurrect a session the user already left.
+  /// 在 [logout] / [dispose] 时递增。自增之前启动的工作会被丢弃，因此迟到的刷新永远
+  /// 无法「复活」用户已退出的会话。
+  int _epoch = 0;
 
   /// Creates a manager. Defaults to [InMemoryTokenStore].
   ///
@@ -32,19 +57,44 @@ final class AuthManager implements AuthTokenSource {
   /// both an [AuthSession.expiresAt] and a refresh token, the manager schedules a
   /// single [refresh] call that many minutes before expiry, so callers rarely hit
   /// an expired access token. Defaults to `null` (disabled).
+  ///
+  /// [refreshFailurePolicy] decides whether a failed refresh signs the user out;
+  /// it defaults to [defaultRefreshFailurePolicy]. [clock] overrides the time
+  /// source used for expiry maths and proactive scheduling (tests, clock skew).
   /// 创建管理器，默认使用 [InMemoryTokenStore]。
   ///
   /// 传入 [autoRefreshAhead] 可开启「临近过期自动刷新」：当会话同时带有
   /// [AuthSession.expiresAt] 与刷新令牌时，管理器会在过期前该时长调度一次
   /// [refresh]，从而让调用方几乎不会撞上过期的访问令牌。默认 `null`（关闭）。
+  ///
+  /// [refreshFailurePolicy] 决定刷新失败是否让用户登出，默认为
+  /// [defaultRefreshFailurePolicy]；[clock] 可覆盖过期计算与主动刷新调度所用的时间源
+  /// （便于测试与应对时钟偏移）。
   AuthManager({
     required this.strategy,
     TokenStore? tokenStore,
     Duration? autoRefreshAhead,
+    RefreshFailurePolicy? refreshFailurePolicy,
+    DateTime Function()? clock,
   })  : tokenStore = tokenStore ?? InMemoryTokenStore(),
-        _autoRefreshAhead = autoRefreshAhead;
+        _autoRefreshAhead = autoRefreshAhead,
+        refreshFailurePolicy =
+            refreshFailurePolicy ?? defaultRefreshFailurePolicy,
+        clock = clock ?? _systemClock;
 
   final Duration? _autoRefreshAhead;
+
+  /// Decides what to do when a refresh fails. Defaults to
+  /// [defaultRefreshFailurePolicy].
+  /// 刷新失败的处理策略，默认为 [defaultRefreshFailurePolicy]。
+  final RefreshFailurePolicy refreshFailurePolicy;
+
+  /// Time source for expiry maths and proactive scheduling. Defaults to the
+  /// system clock.
+  /// 过期计算与主动刷新调度所用的时间源，默认为系统时钟。
+  final DateTime Function() clock;
+
+  static DateTime _systemClock() => DateTime.now();
 
   /// The current state (always available, replay-last).
   /// 当前状态（始终可用，重放最近值）。
@@ -64,39 +114,67 @@ final class AuthManager implements AuthTokenSource {
     return sc.stream;
   }
 
-  /// The active session, or `null` when not authenticated.
-  /// 当前活动会话；未认证时为 `null`。
-  AuthSession? get currentSession =>
-      _state is Authenticated ? (_state as Authenticated).session : null;
+  /// The active session, or `null` when not authenticated. Available in both
+  /// [Authenticated] and [Refreshing] — a session stays usable while it renews —
+  /// but not in [LoggingOut].
+  /// 当前活动会话；未认证时为 `null`。在 [Authenticated] 与 [Refreshing] 下均可用
+  /// （续期中会话依然有效），但 [LoggingOut] 下为空。
+  AuthSession? get currentSession => switch (_state) {
+        Authenticated(:final session) => session,
+        Refreshing(:final session) => session,
+        _ => null,
+      };
 
   @override
   String? get accessToken => currentSession?.accessToken;
 
   /// Restore a persisted session at startup.
+  ///
+  /// When [refreshIfExpired] is `true` (default) and the persisted session is
+  /// already expired, a refresh is attempted before falling back to
+  /// [Unauthenticated]; pass `false` to restore the session as-is.
   /// 启动时恢复持久化会话。
-  Future<void> restore() async {
+  ///
+  /// 当 [refreshIfExpired] 为 `true`（默认）且持久化会话已过期时，会先尝试刷新，失败
+  /// 才降级为 [Unauthenticated]；传 `false` 则原样恢复会话。
+  Future<void> restore({bool refreshIfExpired = true}) async {
     final session = await tokenStore.load();
     if (session == null) {
       _emit(const Unauthenticated());
-    } else {
-      _activate(session);
+      return;
     }
+    final expired = session.isExpiredAt(clock());
+    // Only reconsider an expired session when the caller opted in; otherwise the
+    // session is restored verbatim, exactly as persisted.
+    // 仅在调用方开启时才对过期会话做再处理；否则原样恢复会话，与持久化内容一致。
+    if (expired && refreshIfExpired) {
+      final renewed =
+          session.refreshToken != null ? await _tryRefresh(session) : false;
+      if (!renewed) {
+        await tokenStore.clear();
+        _emit(const Unauthenticated());
+      }
+      return;
+    }
+    _activate(session);
   }
 
   /// Log in: emits [Authenticating] → [Authenticated] (or [AuthError] on failure).
   /// 登录：先发 [Authenticating]，成功发 [Authenticated]，失败发 [AuthError]。
   Future<Authenticated> login(Credentials credentials) async {
     _emit(const Authenticating());
+    final epoch = _epoch;
     try {
       final session = await strategy.login(credentials);
+      _ensureCurrent(epoch);
       await tokenStore.save(session);
       final next = Authenticated(session);
       _activate(session);
       return next;
-    } catch (e, st) {
-      final err = _toAppException(e, st);
-      _emit(AuthError(err));
-      throw err;
+    } catch (e) {
+      final failure = mapAuthFailure(e);
+      if (_isCurrent(epoch)) _emit(AuthError(failure));
+      throw failure;
     }
   }
 
@@ -104,25 +182,60 @@ final class AuthManager implements AuthTokenSource {
   /// 注册新账户并返回首个会话。
   Future<Authenticated> register(RegistrationInput input) async {
     _emit(const Authenticating());
+    final epoch = _epoch;
     try {
       final session = await strategy.register(input);
+      _ensureCurrent(epoch);
       await tokenStore.save(session);
       final next = Authenticated(session);
       _activate(session);
       return next;
-    } catch (e, st) {
-      final err = _toAppException(e, st);
-      _emit(AuthError(err));
-      throw err;
+    } catch (e) {
+      final failure = mapAuthFailure(e);
+      if (_isCurrent(epoch)) _emit(AuthError(failure));
+      throw failure;
     }
   }
 
-  /// Log out: notify the backend, clear storage, emit [Unauthenticated].
-  /// 登出：通知后端、清空存储、发 [Unauthenticated]。
+  /// Adopt a session produced by any flow you drive yourself — third-party
+  /// OAuth, magic links, passkeys, biometric unlock — and emit it as the active
+  /// session.
+  ///
+  /// This is the escape hatch for logins that do not fit [login] / [register]:
+  /// the manager still owns persistence, the state machine and scheduling, while
+  /// you keep control over how the tokens are obtained.
+  /// 接纳由你自行驱动的任意流程所产生的会话——第三方 OAuth、魔法链接、Passkey、
+  /// 生物识别解锁——并将其作为活动会话发出。
+  ///
+  /// 这是 [login] / [register] 之外的逃生口：令牌如何获取由你掌控，而持久化、状态机
+  /// 与调度仍由管理器负责。
+  Future<Authenticated> loginWith(
+    Future<AuthSession> Function(AuthStrategy strategy) flow,
+  ) async {
+    _emit(const Authenticating());
+    final epoch = _epoch;
+    try {
+      final session = await flow(strategy);
+      _ensureCurrent(epoch);
+      await tokenStore.save(session);
+      final next = Authenticated(session);
+      _activate(session);
+      return next;
+    } catch (e) {
+      final failure = mapAuthFailure(e);
+      if (_isCurrent(epoch)) _emit(AuthError(failure));
+      throw failure;
+    }
+  }
+
+  /// Log out: emits [LoggingOut], notifies the backend, clears storage, then
+  /// emits [Unauthenticated].
+  /// 登出：发 [LoggingOut]、通知后端、清空存储，最后发 [Unauthenticated]。
   Future<void> logout() async {
-    _autoRefreshTimer?.cancel();
-    final session = currentSession;
+    _cancelProactiveRefresh();
+    final session = _activeSession;
     if (session != null) {
+      _emit(LoggingOut(session));
       try {
         await strategy.logout(SessionHandle(userId: session.userId ?? ''));
       } catch (_) {
@@ -130,44 +243,148 @@ final class AuthManager implements AuthTokenSource {
         // 尽力而为：后端登出失败不应阻断本地登出。
       }
     }
+    // Invalidate everything started before now (e.g. an in-flight refresh).
+    // 让此刻之前启动的所有异步工作失效（例如正在进行的刷新）。
+    _epoch++;
     await tokenStore.clear();
     _emit(const Unauthenticated());
   }
 
   /// Refresh the session. Concurrent callers share a single backend call
-  /// (single-flight).
-  /// 刷新会话。并发调用方共享同一次后端调用（单飞）。
+  /// (single-flight). Emits [Refreshing] while in flight.
+  /// 刷新会话。并发调用方共享同一次后端调用（单飞），期间发出 [Refreshing]。
   Future<AuthSession> refresh() {
-    if (_refreshCompleter != null) return _refreshCompleter!.future;
-    final completer = Completer<AuthSession>();
-    _refreshCompleter = completer;
-    () async {
-      try {
-        final session = currentSession;
-        if (session == null) {
-          throw AuthException('Cannot refresh without a session');
-        }
-        if (session.refreshToken == null) {
-          throw AuthException('Session has no refresh token');
-        }
-        final refreshed = await strategy.refresh(session.refreshToken!);
-        await tokenStore.save(refreshed);
-        _activate(refreshed);
-        completer.complete(refreshed);
-      } catch (e, st) {
-        completer.completeError(_toAppException(e, st));
-      } finally {
-        _refreshCompleter = null;
-      }
-    }();
-    return completer.future;
+    final session = _activeSession;
+    if (session == null) {
+      return Future<AuthSession>.error(NoActiveSessionException());
+    }
+    if (session.refreshToken == null) {
+      return Future<AuthSession>.error(RefreshTokenMissingException());
+    }
+    return _startRefresh(session);
+  }
+
+  /// An access token that is guaranteed not to be expired, refreshing first when
+  /// needed. Returns `null` when unauthenticated, or when the refresh failed and
+  /// the session was dropped. Ideal for HTTP interceptors.
+  /// 保证未过期的访问令牌，必要时先刷新。未认证、或刷新失败导致会话被丢弃时返回
+  /// `null`。非常适合用在 HTTP 拦截器里。
+  Future<String?> validAccessToken() async {
+    final session = currentSession;
+    if (session == null) return null;
+    final renewing =
+        session.isExpiredAt(clock()) && session.refreshToken != null;
+    if (!renewing) return session.accessToken;
+    try {
+      return (await refresh()).accessToken;
+    } on AuthException {
+      return null;
+    }
   }
 
   /// Release internal resources. Call when the manager is no longer used.
   /// 释放内部资源。不再使用时调用。
   Future<void> dispose() {
-    _autoRefreshTimer?.cancel();
+    _disposed = true;
+    _epoch++;
+    _cancelProactiveRefresh();
     return _controller.close();
+  }
+
+  /// The session driving any in-flight or established auth, including the one
+  /// being discarded during [LoggingOut].
+  /// 驱动进行中操作或已建立认证的会话，包含在 [LoggingOut] 期间正被丢弃的那个。
+  AuthSession? get _activeSession => switch (_state) {
+        Authenticated(:final session) => session,
+        Refreshing(:final session) => session,
+        LoggingOut(:final session) => session,
+        _ => null,
+      };
+
+  bool _isCurrent(int epoch) => !_disposed && epoch == _epoch;
+
+  void _ensureCurrent(int epoch) {
+    if (!_isCurrent(epoch)) {
+      throw NoActiveSessionException(
+        message: 'Operation aborted: session invalidated meanwhile',
+      );
+    }
+  }
+
+  /// Restores an expired session by refreshing; reports whether it succeeded.
+  /// 通过刷新恢复已过期会话；返回是否成功。
+  Future<bool> _tryRefresh(AuthSession session) async {
+    try {
+      await _startRefresh(session);
+      return true;
+    } on AuthException {
+      // _startRefresh already applied the failure policy: either the session was
+      // dropped (Unauthenticated) or it was kept usable (Authenticated).
+      // _startRefresh 已应用失败策略：会话要么被丢弃（Unauthenticated），
+      // 要么被保留为可用（Authenticated）。
+      return currentSession != null;
+    }
+  }
+
+  Future<AuthSession> _startRefresh(AuthSession session) {
+    final inFlight = _refreshCompleter;
+    if (inFlight != null) return inFlight.future;
+
+    final epoch = _epoch;
+    _emit(Refreshing(session));
+    final completer = Completer<AuthSession>();
+    _refreshCompleter = completer;
+    unawaited(_runRefresh(session, epoch, completer));
+    return completer.future;
+  }
+
+  Future<void> _runRefresh(
+    AuthSession session,
+    int epoch,
+    Completer<AuthSession> completer,
+  ) async {
+    try {
+      final refreshed = await strategy.refresh(session.refreshToken!);
+      if (!_isCurrent(epoch)) {
+        completer.completeError(
+          NoActiveSessionException(
+            message: 'Refresh aborted: session invalidated meanwhile',
+          ),
+        );
+        return;
+      }
+      await tokenStore.save(refreshed);
+      _activate(refreshed);
+      completer.complete(refreshed);
+    } catch (e) {
+      final failure = mapAuthFailure(e);
+      if (_isCurrent(epoch)) {
+        _emit(AuthError(failure));
+        if (refreshFailurePolicy(failure)) {
+          await tokenStore.clear();
+          _emit(const Unauthenticated());
+        } else {
+          // Transient failure: keep the previous session usable.
+          // 瞬时失败：保留上一个可用会话。
+          _emit(Authenticated(session));
+        }
+      }
+      completer.completeError(failure);
+    } finally {
+      if (_refreshCompleter == completer) _refreshCompleter = null;
+    }
+  }
+
+  /// Proactive refresh runner. Errors are already reflected on the state stream,
+  /// so they are swallowed here to avoid leaking an unhandled async error.
+  /// 主动刷新的执行入口。错误已体现在状态流上，故在此吞掉，避免泄漏未处理的异步错误。
+  Future<void> _refreshQuietly() async {
+    try {
+      await refresh();
+    } on AuthException {
+      // Intentionally ignored — see the doc comment above.
+      // 有意忽略——参见上方文档注释。
+    }
   }
 
   void _activate(AuthSession session) {
@@ -181,28 +398,31 @@ final class AuthManager implements AuthTokenSource {
   /// 在 [AuthSession.expiresAt] 之前 [autoRefreshAhead] 调度一次 [refresh]。
   /// 当未开启主动刷新、或会话缺少过期时间 / 刷新令牌时为空操作。
   void _scheduleAutoRefresh(AuthSession session) {
-    _autoRefreshTimer?.cancel();
-    _autoRefreshTimer = null;
+    _cancelProactiveRefresh();
     final ahead = _autoRefreshAhead;
     if (ahead == null ||
         session.expiresAt == null ||
         session.refreshToken == null) {
       return;
     }
-    final delay = session.expiresAt!.difference(DateTime.now()) - ahead;
+    final delay = session.expiresAt!.difference(clock()) - ahead;
     if (delay <= Duration.zero) {
-      unawaited(refresh());
+      unawaited(_refreshQuietly());
       return;
     }
-    _autoRefreshTimer = Timer(delay, () => unawaited(refresh()));
+    _autoRefreshTimer = Timer(delay, () => unawaited(_refreshQuietly()));
+  }
+
+  void _cancelProactiveRefresh() {
+    _autoRefreshTimer?.cancel();
+    _autoRefreshTimer = null;
   }
 
   void _emit(AuthState state) {
+    // Suppress consecutive duplicates so UIs do not rebuild for a no-op change.
+    // 抑制连续重复值，避免 UI 因无变化的通知而重建。
+    if (_state == state) return;
     _state = state;
     if (!_controller.isClosed) _controller.add(state);
   }
-
-  AppException _toAppException(Object e, StackTrace? st) => e is AppException
-      ? e
-      : AuthException('Unexpected auth failure', cause: e);
 }

@@ -12,11 +12,33 @@ void main() {
     });
 
     test('isAuthenticated reflects the state', () {
+      const s = AuthSession(accessToken: 'x');
       expect(const Unauthenticated().isAuthenticated, isFalse);
       expect(const Authenticating().isAuthenticated, isFalse);
+      expect(const Authenticated(s).isAuthenticated, isTrue);
+      expect(const Refreshing(s).isAuthenticated, isTrue);
+      expect(const LoggingOut(s).isAuthenticated, isFalse);
+    });
+
+    test('isBusy covers every in-flight state', () {
+      const s = AuthSession(accessToken: 'x');
+      expect(const Unauthenticated().isBusy, isFalse);
+      expect(const Authenticated(s).isBusy, isFalse);
+      expect(AuthError(AuthException('e')).isBusy, isFalse);
+      expect(const Authenticating().isBusy, isTrue);
+      expect(const Refreshing(s).isBusy, isTrue);
+      expect(const LoggingOut(s).isBusy, isTrue);
+    });
+
+    test('Refreshing and LoggingOut have value equality', () {
+      const a = AuthSession(accessToken: 'x');
+      const b = AuthSession(accessToken: 'x');
+      expect(const Refreshing(a), const Refreshing(b));
+      expect(const LoggingOut(a), const LoggingOut(b));
+      expect(const Refreshing(a), isNot(const LoggingOut(a)));
       expect(
-        const Authenticated(AuthSession(accessToken: 'x')).isAuthenticated,
-        isTrue,
+        const Refreshing(a).hashCode,
+        const Refreshing(b).hashCode,
       );
     });
 

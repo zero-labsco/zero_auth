@@ -113,14 +113,16 @@ void main() {
   });
 
   group('AuthState', () {
-    test('isAuthenticated is only true for Authenticated', () {
+    test('isAuthenticated is true for Authenticated and Refreshing', () {
+      const s = AuthSession(accessToken: 'a');
       expect(const Unauthenticated().isAuthenticated, isFalse);
       expect(const Authenticating().isAuthenticated, isFalse);
       expect(AuthError(AuthException('e')).isAuthenticated, isFalse);
-      expect(
-        const Authenticated(AuthSession(accessToken: 'a')).isAuthenticated,
-        isTrue,
-      );
+      expect(const Authenticated(s).isAuthenticated, isTrue);
+      // Refreshing keeps the previous session usable, so it stays authenticated.
+      // Refreshing 期间旧会话仍然可用，因此仍算已认证。
+      expect(const Refreshing(s).isAuthenticated, isTrue);
+      expect(const LoggingOut(s).isAuthenticated, isFalse);
     });
 
     test('AuthError holds the mapped AppException', () {

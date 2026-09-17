@@ -178,8 +178,9 @@ class _DemoAppState extends State<DemoApp> {
       strategy: _useBackend ? _HttpAuthStrategy(_baseUrl) : _DemoStrategy(),
       tokenStore: InMemoryTokenStore(),
     );
-    // Interceptor references this same [_auth], so it always reads the live token.
-    _dio = Dio()..interceptors.add(AuthInterceptor(_auth));
+    // Interceptor references this same [_auth], so it always reads the live
+    // token and renews it before it expires.
+    _dio = Dio()..interceptors.add(RefreshingAuthInterceptor(_auth));
     unawaited(_auth.restore());
   }
 
@@ -235,8 +236,11 @@ class _DemoAppState extends State<DemoApp> {
           stream: auth.state,
           builder: (context, snapshot) {
             final state = snapshot.data;
-            final authed = state is Authenticated;
-            final session = authed ? state.session : null;
+            // isAuthenticated stays true during Refreshing, so the UI never
+            // bounces back to the login form while the session renews.
+            final authed = state?.isAuthenticated ?? false;
+            final busy = state?.isBusy ?? false;
+            final session = auth.currentSession;
             final error = state is AuthError ? state.error : null;
             return SingleChildScrollView(
               padding: const EdgeInsets.all(24),
@@ -244,6 +248,7 @@ class _DemoAppState extends State<DemoApp> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text('state: ${state.runtimeType}', style: theme.titleMedium),
+                  if (busy) Text('busy: ${state.runtimeType} in flight'),
                   const SizedBox(height: 4),
                   Text(
                     _useBackend

@@ -5,6 +5,14 @@ import 'package:zero_auth/zero_auth.dart';
 final class FakeAuthStrategy implements AuthStrategy {
   AuthSession? nextSession;
   Object? loginError;
+
+  /// When set, [refresh] throws it instead of returning [refreshedSession].
+  /// 设置后，[refresh] 会抛该错误，而不是返回 [refreshedSession]。
+  Object? refreshError;
+
+  /// Optionally overrides what [refresh] returns (defaults to [nextSession]).
+  /// 可选地覆盖 [refresh] 的返回值（默认返回 [nextSession]）。
+  AuthSession? refreshedSession;
   int refreshCount = 0;
   bool logoutCalled = false;
 
@@ -33,6 +41,7 @@ final class FakeAuthStrategy implements AuthStrategy {
   @override
   Future<AuthSession> refresh(RefreshToken token) async {
     refreshCount++;
-    return nextSession!;
+    if (refreshError != null) throw refreshError!;
+    return refreshedSession ?? nextSession!;
   }
 }

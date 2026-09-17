@@ -58,8 +58,15 @@ final class AuthSession {
   /// Whether the access token is expired. Sessions without an [expiresAt] are
   /// treated as still valid (no expiry known).
   /// 访问令牌是否已过期。未提供 [expiresAt] 视为仍有效（无过期信息）。
-  bool get isExpired =>
-      expiresAt == null ? false : expiresAt!.isBefore(DateTime.now());
+  bool get isExpired => isExpiredAt(DateTime.now());
+
+  /// Same as [isExpired], evaluated against [now] instead of the wall clock.
+  /// Lets hosts inject their own clock (tests, clock-skew tolerance) instead of
+  /// being tied to [DateTime.now].
+  /// 与 [isExpired] 相同，只是针对 [now] 而非系统时钟判断。便于宿主注入自己的时钟
+  /// （测试、时钟偏移容错），而不必受制于 [DateTime.now]。
+  bool isExpiredAt(DateTime now) =>
+      expiresAt == null ? false : expiresAt!.isBefore(now);
 
   /// Serialize to a JSON-safe map. Drives persistence (e.g. a [TokenStore] that
   /// writes to disk or secure storage). `null` fields are omitted.
