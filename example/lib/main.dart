@@ -485,20 +485,88 @@ class _StatusCard extends StatelessWidget {
               const SizedBox(height: 8),
               _TokenBlock(token: current.accessToken),
               const SizedBox(height: 8),
-              _InfoRow(label: 'expiry', value: _expiryText(current)),
+              _LabeledRow(
+                label: 'expires in',
+                child: _ExpiryCountdown(expiresAt: current.expiresAt),
+              ),
             ],
           ],
         ),
       ),
     );
   }
+}
 
-  static String _expiryText(AuthSession session) {
-    final expiresAt = session.expiresAt;
-    if (expiresAt == null) return 'no expiry';
-    final left = expiresAt.difference(DateTime.now());
-    if (left.isNegative) return 'expired';
-    return 'in ${left.inSeconds}s';
+/// Live "time until expiry" readout.
+///
+/// Remaining time depends on the wall clock, so it has to be recomputed on a
+/// timer: the auth state stream only emits when the session itself changes,
+/// which is why building this value once left it frozen.
+class _ExpiryCountdown extends StatefulWidget {
+  const _ExpiryCountdown({required this.expiresAt});
+
+  final DateTime? expiresAt;
+
+  @override
+  State<_ExpiryCountdown> createState() => _ExpiryCountdownState();
+}
+
+class _ExpiryCountdownState extends State<_ExpiryCountdown> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _startTicking();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ExpiryCountdown oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.expiresAt != widget.expiresAt) {
+      _stopTicking();
+      _startTicking();
+    }
+  }
+
+  @override
+  void dispose() {
+    _stopTicking();
+    super.dispose();
+  }
+
+  void _startTicking() {
+    // Nothing to count down when the session carries no expiry.
+    if (widget.expiresAt == null) return;
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _stopTicking() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final expiresAt = widget.expiresAt;
+    if (expiresAt == null) {
+      return Text('no expiry', style: theme.textTheme.bodyMedium);
+    }
+
+    final remaining = expiresAt.difference(DateTime.now());
+    if (remaining.isNegative) {
+      return Text(
+        'expired',
+        style: theme.textTheme.bodyMedium?.copyWith(
+          color: theme.colorScheme.error,
+          fontWeight: FontWeight.w600,
+        ),
+      );
+    }
+    return Text('${remaining.inSeconds}s', style: theme.textTheme.bodyMedium);
   }
 }
 
@@ -576,11 +644,12 @@ class _TokenBlock extends StatelessWidget {
   }
 }
 
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value});
+/// A fixed-width label next to any value widget.
+class _LabeledRow extends StatelessWidget {
+  const _LabeledRow({required this.label, required this.child});
 
   final String label;
-  final String value;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
@@ -591,24 +660,36 @@ class _InfoRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 72,
+            width: 96,
             child: Text(
               label,
               style: theme.textTheme.bodySmall
                   ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: theme.textTheme.bodyMedium,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
+          Expanded(child: child),
         ],
       ),
     );
   }
+}
+
+/// Convenience form of [_LabeledRow] for plain text.
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) => _LabeledRow(
+        label: label,
+        child: Text(
+          value,
+          style: Theme.of(context).textTheme.bodyMedium,
+          overflow: TextOverflow.ellipsis,
+        ),
+      );
 }
 
 /// Failure surface. Uses the theme's error container rather than literal red,
