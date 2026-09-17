@@ -17,3 +17,8 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   flutter_lints: ^6.0.0
+
+flutter:
+  # Bundles the MaterialIcons font; without this every Icon widget renders as
+  # tofu boxes (empty squares) on desktop and mobile builds.
+  uses-material-design: true
