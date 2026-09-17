@@ -13,8 +13,8 @@ void main() => runApp(const DemoApp());
 
 /// Offline backend double — no real network needed.
 ///
-/// It enforces the same rule as the real demo backend (password must be
-/// [_validPassword]), so the failure path is reachable without a server.
+/// It enforces the same rule as the real demo backend, so the failure path is
+/// reachable without a server.
 class _DemoStrategy implements AuthStrategy {
   static const _validUsername = 'user';
   static const _validPassword = 'user';
@@ -125,7 +125,7 @@ class _HttpAuthStrategy implements AuthStrategy {
         case DioExceptionType.receiveTimeout:
         case DioExceptionType.sendTimeout:
           return AuthException(
-            'Cannot reach the backend at $baseUrl — run "dart run" in server/ first',
+            'Cannot reach the backend at $baseUrl. Run "dart run" in server/ first.',
             code: 'network_unreachable',
             cause: e,
           );
@@ -159,8 +159,8 @@ class DemoApp extends StatefulWidget {
 class _DemoAppState extends State<DemoApp> {
   static const _baseUrl = 'http://localhost:8080';
 
-  /// Defaults to the real Dart backend in `../../server`; flip the AppBar
-  /// switch to fall back to the offline double.
+  /// Defaults to the real Dart backend in `../../server`; flip the switch to
+  /// fall back to the offline double.
   bool _useBackend = true;
   late AuthManager _auth;
   late Dio _dio;
@@ -176,6 +176,7 @@ class _DemoAppState extends State<DemoApp> {
 
   @override
   void dispose() {
+    unawaited(_auth.dispose());
     _username.dispose();
     _password.dispose();
     super.dispose();
@@ -186,13 +187,14 @@ class _DemoAppState extends State<DemoApp> {
       strategy: _useBackend ? _HttpAuthStrategy(_baseUrl) : _DemoStrategy(),
       tokenStore: InMemoryTokenStore(),
     );
-    // Interceptor references this same [_auth], so it always reads the live
+    // The interceptor references this same [_auth], so it always reads the live
     // token and renews it before it expires.
     _dio = Dio()..interceptors.add(RefreshingAuthInterceptor(_auth));
     unawaited(_auth.restore());
   }
 
   void _toggleBackend(bool value) => setState(() {
+        unawaited(_auth.dispose());
         _useBackend = value;
         _init();
       });
@@ -230,7 +232,7 @@ class _DemoAppState extends State<DemoApp> {
     try {
       final res = await _dio.post('$_baseUrl/debug/expire-access');
       if (!context.mounted) return;
-      _snack(context, 'expired -> ${res.data} (now press Call /me)');
+      _snack(context, 'expired -> ${res.data}. Now press Call /me.');
     } catch (e) {
       if (!context.mounted) return;
       _snack(context, 'expire failed: $e');
@@ -246,11 +248,11 @@ class _DemoAppState extends State<DemoApp> {
         '$_baseUrl/debug/access-ttl',
         data: {'seconds': seconds},
       );
-      await _auth.refresh();
+      await _invoke(() => _auth.refresh());
       if (!context.mounted) return;
       _snack(
         context,
-        'token now expires in ${seconds}s — press Call /me to watch renewal',
+        'token now expires in ${seconds}s. Press Call /me to watch renewal.',
       );
     } catch (e) {
       if (!context.mounted) return;
@@ -258,121 +260,635 @@ class _DemoAppState extends State<DemoApp> {
     }
   }
 
+  /// Debug: restore the configured token lifetime and clear simulated expiry.
+  Future<void> _resetDebug(BuildContext context) async {
+    try {
+      await _dio.post('$_baseUrl/debug/reset');
+      if (!context.mounted) return;
+      _snack(context, 'debug backend reset');
+    } catch (e) {
+      if (!context.mounted) return;
+      _snack(context, 'reset failed: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+        title: 'zero_auth demo',
+        theme: _theme(Brightness.light),
+        darkTheme: _theme(Brightness.dark),
+        home: Scaffold(
+          appBar: AppBar(title: const Text('zero_auth demo')),
+          body: SafeArea(
+            child: StreamBuilder<AuthState>(
+              initialData: _auth.current,
+              stream: _auth.state,
+              builder: (context, snapshot) => _DemoBody(
+                state: snapshot.data,
+                auth: _auth,
+                useBackend: _useBackend,
+                baseUrl: _baseUrl,
+                username: _username,
+                password: _password,
+                onToggleBackend: _toggleBackend,
+                onLogin: () => _invoke(
+                  () => _auth.login(
+                    Credentials(
+                      username: _username.text,
+                      password: _password.text,
+                    ),
+                  ),
+                ),
+                onRefresh: () => _invoke(() => _auth.refresh()),
+                onLogout: () => _invoke(() => _auth.logout()),
+                onCallMe: () => _callMe(context),
+                onExpireNow: () => _expireTokenNow(context),
+                onExpireSoon: () => _expireTokenSoon(context, 10),
+                onResetDebug: () => _resetDebug(context),
+              ),
+            ),
+          ),
+        ),
+      );
+
+  /// One seed colour drives the whole palette; widgets read shades from the
+  /// theme instead of hardcoding colors.
+  static ThemeData _theme(Brightness brightness) => ThemeData(
+        useMaterial3: true,
+        brightness: brightness,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF00695C),
+          brightness: brightness,
+        ),
+      );
+}
+
+/// The scrollable demo surface. Adapts to the viewport: a full-width column on
+/// phones, and a centred, width-constrained column from 600dp up.
+class _DemoBody extends StatelessWidget {
+  const _DemoBody({
+    required this.state,
+    required this.auth,
+    required this.useBackend,
+    required this.baseUrl,
+    required this.username,
+    required this.password,
+    required this.onToggleBackend,
+    required this.onLogin,
+    required this.onRefresh,
+    required this.onLogout,
+    required this.onCallMe,
+    required this.onExpireNow,
+    required this.onExpireSoon,
+    required this.onResetDebug,
+  });
+
+  final AuthState? state;
+  final AuthManager auth;
+  final bool useBackend;
+  final String baseUrl;
+  final TextEditingController username;
+  final TextEditingController password;
+  final ValueChanged<bool> onToggleBackend;
+  final VoidCallback onLogin;
+  final VoidCallback onRefresh;
+  final VoidCallback onLogout;
+  final VoidCallback onCallMe;
+  final VoidCallback onExpireNow;
+  final VoidCallback onExpireSoon;
+  final VoidCallback onResetDebug;
+
   @override
   Widget build(BuildContext context) {
-    final auth = _auth;
-    final theme = Theme.of(context).textTheme;
-    return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(
-          title: const Text('zero_auth demo'),
-          actions: [
+    final width = MediaQuery.sizeOf(context).width;
+    final compact = width < 600;
+    final gutter = compact ? 16.0 : 24.0;
+    final session = auth.currentSession;
+    final error = state is AuthError ? (state! as AuthError).error : null;
+
+    return Align(
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 640),
+        child: SingleChildScrollView(
+          // Extra bottom room keeps the last control clear of the keyboard.
+          padding: EdgeInsets.fromLTRB(gutter, gutter, gutter, 32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _StatusCard(state: state, session: session),
+              if (error != null) ...[
+                const SizedBox(height: 12),
+                _ErrorCard(error: error),
+              ],
+              const SizedBox(height: 12),
+              _BackendCard(
+                useBackend: useBackend,
+                baseUrl: baseUrl,
+                onChanged: onToggleBackend,
+              ),
+              const SizedBox(height: 12),
+              if (session == null)
+                _LoginCard(
+                  username: username,
+                  password: password,
+                  busy: state?.isBusy ?? false,
+                  onLogin: onLogin,
+                )
+              else
+                _SessionCard(
+                  auth: auth,
+                  session: session,
+                  busy: state?.isBusy ?? false,
+                  onCallMe: onCallMe,
+                  onRefresh: onRefresh,
+                  onLogout: onLogout,
+                ),
+              if (session != null && useBackend) ...[
+                const SizedBox(height: 12),
+                _DebugCard(
+                  onExpireNow: onExpireNow,
+                  onExpireSoon: onExpireSoon,
+                  onReset: onResetDebug,
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Current machine state plus a signed-in / working indicator.
+class _StatusCard extends StatelessWidget {
+  const _StatusCard({required this.state, required this.session});
+
+  final AuthState? state;
+  final AuthSession? session;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    final signedIn = state?.isAuthenticated ?? false;
+    final busy = state?.isBusy ?? false;
+    final current = session;
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
             Row(
               children: [
-                const Text('Live backend'),
-                Switch(value: _useBackend, onChanged: _toggleBackend),
+                Icon(
+                  signedIn ? Icons.lock_open : Icons.lock_outline,
+                  size: 20,
+                  color: signedIn ? colors.primary : colors.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'state: ${state?.runtimeType ?? 'Unknown'}',
+                    style: theme.textTheme.titleMedium
+                        ?.copyWith(fontWeight: FontWeight.w600),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _Badge(
+                  label: signedIn ? 'signed in' : 'signed out',
+                  color: signedIn ? colors.primary : colors.outline,
+                  onColor: signedIn ? colors.onPrimary : colors.onSurface,
+                ),
+                if (busy)
+                  _Badge(
+                    label: 'working',
+                    color: colors.secondary,
+                    onColor: colors.onSecondary,
+                  ),
+              ],
+            ),
+            // Local copy: fields are not promoted by `if (session != null)`.
+            if (current != null) ...[
+              const Divider(height: 24),
+              _InfoRow(label: 'user', value: current.userId ?? '-'),
+              _InfoRow(label: 'name', value: current.displayName ?? '-'),
+              _InfoRow(
+                label: 'token',
+                value: _preview(current.accessToken),
+                monospace: true,
+              ),
+              _InfoRow(label: 'expiry', value: _expiryText(current)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Real JWTs are long; show a stable head so the row never overflows.
+  static String _preview(String token) {
+    const head = 28;
+    if (token.length <= head) return token;
+    return '${token.substring(0, head)}…';
+  }
+
+  static String _expiryText(AuthSession session) {
+    final expiresAt = session.expiresAt;
+    if (expiresAt == null) return 'no expiry';
+    final left = expiresAt.difference(DateTime.now());
+    if (left.isNegative) return 'expired';
+    return 'in ${left.inSeconds}s';
+  }
+}
+
+class _Badge extends StatelessWidget {
+  const _Badge({
+    required this.label,
+    required this.color,
+    required this.onColor,
+  });
+
+  final String label;
+  final Color color;
+  final Color onColor;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: const BorderRadius.all(Radius.circular(8)),
+        ),
+        child: Text(
+          label,
+          style:
+              Theme.of(context).textTheme.labelMedium?.copyWith(color: onColor),
+        ),
+      );
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.label,
+    required this.value,
+    this.monospace = false,
+  });
+
+  final String label;
+  final String value;
+  final bool monospace;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 2),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(
+              label,
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: monospace
+                  ? theme.textTheme.bodySmall?.copyWith(
+                      fontFamily: 'monospace',
+                      letterSpacing: -0.2,
+                    )
+                  : theme.textTheme.bodyMedium,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Failure surface. Uses the theme's error container rather than literal red,
+/// so it stays legible in dark mode too.
+class _ErrorCard extends StatelessWidget {
+  const _ErrorCard({required this.error});
+
+  final AppException error;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Card(
+      color: colors.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(Icons.error_outline, size: 20, color: colors.onErrorContainer),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    error.message,
+                    style: theme.textTheme.bodyMedium
+                        ?.copyWith(color: colors.onErrorContainer),
+                  ),
+                  if (error.code != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'code: ${error.code}',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colors.onErrorContainer,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Backend choice, as a properly labelled control with a full-width tap target.
+class _BackendCard extends StatelessWidget {
+  const _BackendCard({
+    required this.useBackend,
+    required this.baseUrl,
+    required this.onChanged,
+  });
+
+  final bool useBackend;
+  final String baseUrl;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) => Card(
+        child: SwitchListTile.adaptive(
+          value: useBackend,
+          onChanged: onChanged,
+          title: const Text('Live backend'),
+          subtitle: Text(useBackend ? baseUrl : 'offline double, no server'),
+          secondary: const Icon(Icons.cloud_outlined),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+        ),
+      );
+}
+
+/// Sign-in form. The password can be revealed, and submitting from the keyboard
+/// triggers the same action as the button.
+class _LoginCard extends StatefulWidget {
+  const _LoginCard({
+    required this.username,
+    required this.password,
+    required this.busy,
+    required this.onLogin,
+  });
+
+  final TextEditingController username;
+  final TextEditingController password;
+  final bool busy;
+  final VoidCallback onLogin;
+
+  @override
+  State<_LoginCard> createState() => _LoginCardState();
+}
+
+class _LoginCardState extends State<_LoginCard> {
+  bool _obscure = true;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Sign in', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 16),
+            TextField(
+              controller: widget.username,
+              enabled: !widget.busy,
+              textInputAction: TextInputAction.next,
+              autocorrect: false,
+              decoration: const InputDecoration(
+                labelText: 'Username',
+                prefixIcon: Icon(Icons.person_outline),
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: widget.password,
+              enabled: !widget.busy,
+              obscureText: _obscure,
+              textInputAction: TextInputAction.done,
+              onSubmitted: (_) => widget.onLogin(),
+              decoration: InputDecoration(
+                labelText: 'Password',
+                prefixIcon: const Icon(Icons.key_outlined),
+                border: const OutlineInputBorder(),
+                suffixIcon: IconButton(
+                  tooltip: _obscure ? 'Show password' : 'Hide password',
+                  icon: Icon(
+                    _obscure ? Icons.visibility_outlined : Icons.visibility_off,
+                  ),
+                  onPressed: () => setState(() => _obscure = !_obscure),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Demo account: user / user',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              // Disabling while a request is in flight prevents double submits.
+              onPressed: widget.busy ? null : widget.onLogin,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
+              child: widget.busy
+                  ? const SizedBox(
+                      height: 20,
+                      width: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Log in'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Actions available once a session exists.
+class _SessionCard extends StatelessWidget {
+  const _SessionCard({
+    required this.auth,
+    required this.session,
+    required this.busy,
+    required this.onCallMe,
+    required this.onRefresh,
+    required this.onLogout,
+  });
+
+  final AuthManager auth;
+  final AuthSession session;
+  final bool busy;
+  final VoidCallback onCallMe;
+  final VoidCallback onRefresh;
+  final VoidCallback onLogout;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colors = theme.colorScheme;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text('Session', style: theme.textTheme.titleMedium),
+            const SizedBox(height: 4),
+            Text(
+              'Requests carry the bearer token; an expired one is renewed '
+              'transparently before it is sent.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: colors.onSurfaceVariant),
+            ),
+            const SizedBox(height: 16),
+            FilledButton(
+              onPressed: onCallMe,
+              style: FilledButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
+              child: const Text('Call /me'),
+            ),
+            const SizedBox(height: 12),
+            // Wrap keeps actions side by side on wide screens and stacked on
+            // narrow ones, without overflowing either way.
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                OutlinedButton(
+                  onPressed: busy ? null : onRefresh,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(140, 48),
+                  ),
+                  child: const Text('Refresh'),
+                ),
+                TextButton(
+                  onPressed: busy ? null : onLogout,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(140, 48),
+                    foregroundColor: colors.error,
+                  ),
+                  child: const Text('Log out'),
+                ),
               ],
             ),
           ],
         ),
-        body: StreamBuilder<AuthState>(
-          initialData: auth.current,
-          stream: auth.state,
-          builder: (context, snapshot) {
-            final state = snapshot.data;
-            // isAuthenticated stays true during Refreshing, so the UI never
-            // bounces back to the login form while the session renews.
-            final authed = state?.isAuthenticated ?? false;
-            final busy = state?.isBusy ?? false;
-            final session = auth.currentSession;
-            final error = state is AuthError ? state.error : null;
-            return SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('state: ${state.runtimeType}', style: theme.titleMedium),
-                  if (busy) Text('busy: ${state.runtimeType} in flight'),
-                  const SizedBox(height: 4),
-                  Text(
-                    _useBackend
-                        ? 'backend: $_baseUrl'
-                        : 'backend: offline fake',
-                    style: theme.bodySmall,
+      ),
+    );
+  }
+}
+
+/// Debug hooks of the demo backend, visually separated from real actions.
+class _DebugCard extends StatelessWidget {
+  const _DebugCard({
+    required this.onExpireNow,
+    required this.onExpireSoon,
+    required this.onReset,
+  });
+
+  final VoidCallback onExpireNow;
+  final VoidCallback onExpireSoon;
+  final VoidCallback onReset;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  Icons.bug_report_outlined,
+                  size: 18,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+                const SizedBox(width: 8),
+                Text('Debug', style: theme.textTheme.titleSmall),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Force token expiry without waiting for it to happen.',
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                OutlinedButton(
+                  onPressed: onExpireNow,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(140, 48),
                   ),
-                  const SizedBox(height: 8),
-                  if (session != null) ...[
-                    Text('userId: ${session.userId}'),
-                    Text('displayName: ${session.displayName}'),
-                    Text('accessToken: ${auth.accessToken}'),
-                    Text('isExpired: ${session.isExpired}'),
-                    const SizedBox(height: 8),
-                  ],
-                  if (error != null)
-                    Text(
-                      'error: ${error.message} (${error.code})',
-                      style: const TextStyle(color: Colors.red),
-                    ),
-                  const SizedBox(height: 24),
-                  if (!authed) ...[
-                    TextField(
-                      controller: _username,
-                      decoration: const InputDecoration(labelText: 'username'),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _password,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'password (use "user")',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    ElevatedButton(
-                      onPressed: () => unawaited(
-                        _invoke(
-                          () => auth.login(
-                            Credentials(
-                              username: _username.text,
-                              password: _password.text,
-                            ),
-                          ),
-                        ),
-                      ),
-                      child: const Text('Login'),
-                    ),
-                  ] else ...[
-                    ElevatedButton(
-                      onPressed: () => unawaited(_invoke(() => auth.refresh())),
-                      child: const Text('Refresh'),
-                    ),
-                    ElevatedButton(
-                      onPressed: () => unawaited(_invoke(() => auth.logout())),
-                      child: const Text('Logout'),
-                    ),
-                    // Debug hooks of the demo backend; only meaningful against
-                    // the real server.
-                    if (_useBackend) ...[
-                      const SizedBox(height: 8),
-                      ElevatedButton(
-                        onPressed: () => _expireTokenNow(context),
-                        child: const Text('Expire token now'),
-                      ),
-                      ElevatedButton(
-                        onPressed: () => _expireTokenSoon(context, 10),
-                        child: const Text('Expire in 10s'),
-                      ),
-                    ],
-                  ],
-                  const SizedBox(height: 12),
-                  ElevatedButton(
-                    onPressed: () => _callMe(context),
-                    child: const Text('Call /me'),
+                  child: const Text('Expire now'),
+                ),
+                OutlinedButton(
+                  onPressed: onExpireSoon,
+                  style: OutlinedButton.styleFrom(
+                    minimumSize: const Size(140, 48),
                   ),
-                ],
-              ),
-            );
-          },
+                  child: const Text('Expire in 10s'),
+                ),
+                TextButton(
+                  onPressed: onReset,
+                  style: TextButton.styleFrom(
+                    minimumSize: const Size(120, 48),
+                  ),
+                  child: const Text('Reset'),
+                ),
+              ],
+            ),
+          ],
         ),
       ),
     );
