@@ -56,6 +56,18 @@ export const pageMap = [{
     "sidebarTitle": "Network Integration"
   }
 }, {
+  name: "Persistence",
+  route: "/Persistence",
+  frontMatter: {
+    "sidebarTitle": "Persistence"
+  }
+}, {
+  name: "Third-Party-Login",
+  route: "/Third-Party-Login",
+  frontMatter: {
+    "sidebarTitle": "Third Party Login"
+  }
+}, {
   name: "Token-Store",
   route: "/Token-Store",
   frontMatter: {

@@ -158,7 +158,14 @@ function main() {
   const dryRun =
     process.argv.includes('--dry-run') || process.env.SYNC_DOCS_DRYRUN === '1';
 
-  if (!websiteSourceChanged() && !pubspecVersionChanged()) {
+  // `--force` bypasses change detection. Needed when the website changes are
+  // already committed (no git diff left) but docs/ still holds a stale build —
+  // e.g. after installing the hook late, or recovering a missed sync.
+  // `--force` 跳过变更检测：当 website 改动已提交（diff 为空）而 docs/ 仍是旧构建时
+  // 需要它，例如 hook 补装较晚或漏同步后的补救。
+  const force = process.argv.includes('--force');
+
+  if (!force && !websiteSourceChanged() && !pubspecVersionChanged()) {
     console.log(
       '[sync-docs] No website source or pubspec version changes — skipping build.',
     );
