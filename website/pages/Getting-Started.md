@@ -30,17 +30,31 @@ Then drive the UI from the state stream:
 ```dart
 auth.state.listen((state) {
   switch (state) {
-    case AuthUnauthenticated():
+    case Unauthenticated():
       showLoginScreen();
     case Authenticating():
+    case LoggingOut():
       showSpinner();
     case Authenticated(:final session):
       showHome(session.userId);
+    case Refreshing(:final session):
+      // Still signed in: only the token is being renewed.
+      // 仍处于已登录状态：只是令牌在续期。
+      showHome(session.userId, renewing: true);
     case AuthError(:final error):
       showError(error);
   }
 });
 ```
+
+> If you prefer `if`/`else` over exhaustiveness, use `state.isAuthenticated` and
+> `state.isBusy` instead of `state is Authenticated` — `isAuthenticated` stays
+> `true` during `Refreshing`, so your UI never bounces back to the login screen
+> mid-refresh.
+>
+> 若不想用穷举匹配，请用 `state.isAuthenticated` / `state.isBusy` 代替
+> `state is Authenticated`——`isAuthenticated` 在 `Refreshing` 期间仍为 `true`，
+> 界面不会在刷新途中退回登录页。
 
 ## The Lifecycle / 生命周期
 
@@ -51,8 +65,10 @@ auth.state.listen((state) {
 | State | Meaning |
 |-------|---------|
 | `Unauthenticated` | No session / 无会话 |
-| `Authenticating` | `login`/`register`/`restore` in flight / 登录/注册/恢复进行中 |
+| `Authenticating` | `login`/`register` in flight / 登录/注册进行中 |
 | `Authenticated` | A valid session is present / 存在有效会话 |
+| `Refreshing` | Session renewal in flight; the previous session stays usable / 续期进行中，旧会话仍可用 |
+| `LoggingOut` | `logout()` in flight / 登出进行中 |
 | `AuthError` | The last operation failed / 上一次操作失败 |
 
 The stream replays the latest value to new listeners, so a widget renders the correct screen on its first frame.

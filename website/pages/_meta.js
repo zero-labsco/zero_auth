@@ -10,6 +10,9 @@ export default {
   'Token-Store': '💾 Token Store',
   'Network-Integration': '🌐 Network Integration',
 
+  '--cookbook': { type: 'separator', title: '🍳 Cookbook' },
+  'Third-Party-Login': '🔑 Third-Party Login',
+
   '--advanced': { type: 'separator', title: '🛠 Advanced' },
   Errors: '⚠️ Errors',
   Configuration: '⚙️ Configuration',

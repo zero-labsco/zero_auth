@@ -12,7 +12,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 Upgrade recommended:** `0.2.0` adds **session (de)serialization** (`AuthSession.toJson` / `AuthSession.fromJson`) so sessions survive restarts, a **file-based reference store** for server/CLI, and **opt-in proactive auto-refresh** that renews tokens before they expire. Pin `zero_auth: ^0.2.0` (or git `ref: release/v0.2.0`).
+> **🔔 Upgrade recommended:** `0.3.0` fixes the failure paths that silently broke real apps — a proactive refresh no longer leaks an unhandled error, a dead refresh token no longer leaves you "logged in" with a stale token, and an expired persisted session now heals itself at startup. It also adds **`loginWith`** for third-party OAuth / magic links / passkeys, **`validAccessToken()`** for interceptors, and `Refreshing` / `LoggingOut` states (⚠️ **breaking**: exhaustive `switch` must handle them — prefer `state.isAuthenticated`). Pin `zero_auth: ^0.3.0` (or git `ref: release/v0.3.0`).
 
 🌐 **[Official Website](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[View on pub.dev](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[View on GitHub](https://github.com/zero-labsco/zero_auth)**
 
@@ -38,8 +38,12 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 ## Features
 
 - **Backend-agnostic** — a pure-Dart core; bring any backend by implementing `AuthStrategy` (REST, gRPC, Firebase, your own RPC…).
-- **Explicit state machine** — `Unauthenticated → Authenticating → Authenticated → AuthError`, broadcast as a replay-last stream.
-- **Silent restore & refresh** — restores the persisted session at startup and refreshes tokens transparently (single-flight, so concurrent callers share one call).
+- **Explicit state machine** — `Unauthenticated`, `Authenticating`, `Authenticated`, `Refreshing`, `LoggingOut` and `AuthError`, broadcast as a replay-last stream. Prefer `state.isAuthenticated` / `state.isBusy` over `state is Authenticated`, so a token renewal never unmounts your signed-in UI.
+- **Silent restore & refresh** — restores the persisted session at startup (refreshing it first when it has expired) and refreshes tokens transparently (single-flight, so concurrent callers share one call).
+- **Bring your own login flow** — `loginWith` adopts a session from any flow you drive yourself: third-party OAuth, magic links, passkeys or biometric unlock.
+- **Never send an expired token** — `validAccessToken()` renews the session first when the token has expired; ideal for HTTP interceptors.
+- **Typed auth exceptions** — `InvalidCredentialsException`, `SessionExpiredException`, and friends, mapped automatically from your strategy's `AuthException.code`.
+- **Configurable refresh failure handling** — `refreshFailurePolicy` decides whether a failed refresh signs the user out (default: yes for unrecoverable failures, no for transient ones).
 - **Pluggable persistence** — `TokenStore` is the only persistence boundary; the core ships `InMemoryTokenStore`, production uses a secure store (see `example/`).
 - **Unified errors** — domain failures map to `AppException` (from this package's error kernel); raw `Exception`s never cross the public surface.
 - **Network-ready** — `AuthTokenSource` is the extension point that lets Dio / GraphQL interceptors attach `Authorization: Bearer` headers.
@@ -54,7 +58,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 
 ```yaml
 dependencies:
-  zero_auth: ^0.2.0
+  zero_auth: ^0.3.0
 ```
 
 ### Git
@@ -64,7 +68,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v0.2.0   # pin the release/vX.Y.Z branch (immutable per release)
+      ref: release/v0.3.0   # pin the release/vX.Y.Z branch (immutable per release)
 ```
 
 ## Usage

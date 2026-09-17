@@ -12,7 +12,7 @@
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 推荐升级：** `0.2.0` 新增**会话（反）序列化**（`AuthSession.toJson` / `AuthSession.fromJson`），让会话可跨重启保留；新增面向服务端 / CLI 的**基于文件的参考存储**；并新增可选的**临近过期自动刷新**，在令牌失效前主动续期。请使用 `zero_auth: ^0.2.0`（Git 方式用 `ref: release/v0.2.0`）。
+> **🔔 推荐升级：** `0.3.0` 修复了那些会静默拖垮真实应用的失败路径——主动刷新不再泄漏未处理异常、刷新令牌失效后不再「假装已登录」拿着过期令牌、启动时的过期会话现在会自愈。同时新增 **`loginWith`**（第三方 OAuth / 魔法链接 / Passkey）、**`validAccessToken()`**（拦截器友好），以及 `Refreshing` / `LoggingOut` 状态（⚠️ **破坏性**：穷举 `switch` 必须处理它们，建议改用 `state.isAuthenticated`）。请使用 `zero_auth: ^0.3.0`（Git 方式用 `ref: release/v0.3.0`）。
 
 🌐 **[官方网站](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[在 pub.dev 查看](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[查看 GitHub 仓库](https://github.com/zero-labsco/zero_auth)**
 
@@ -38,8 +38,12 @@
 ## 功能特性
 
 - **后端无关**：纯 Dart 内核；实现 `AuthStrategy` 即可接入任意后端（REST、gRPC、Firebase、自有 RPC……）。
-- **显式状态机**：`Unauthenticated → Authenticating → Authenticated → AuthError`，以「重放最近值」的广播流对外暴露。
-- **静默恢复与刷新**：启动时恢复持久化会话，并透明刷新令牌（单飞机制，并发调用方共享同一次刷新）。
+- **显式状态机**：`Unauthenticated`、`Authenticating`、`Authenticated`、`Refreshing`、`LoggingOut`、`AuthError`，以「重放最近值」的广播流对外暴露。建议用 `state.isAuthenticated` / `state.isBusy` 代替 `state is Authenticated`，这样令牌续期时不会卸载已登录界面。
+- **静默恢复与刷新**：启动时恢复持久化会话（会话已过期则先续期），并透明刷新令牌（单飞机制，并发调用方共享同一次刷新）。
+- **自带任意登录流程**：`loginWith` 可接纳你自行驱动的流程所产生的会话——第三方 OAuth、魔法链接、Passkey 或生物识别解锁。
+- **绝不发送过期令牌**：`validAccessToken()` 在令牌过期时先续期再返回，非常适合 HTTP 拦截器。
+- **类型化认证异常**：`InvalidCredentialsException`、`SessionExpiredException` 等，可由你策略里的 `AuthException.code` 自动映射而来。
+- **可配置的刷新失败处理**：`refreshFailurePolicy` 决定一次刷新失败是否让用户登出（默认：不可恢复的失败登出，瞬时故障保留会话）。
 - **可插拔持久化**：`TokenStore` 是唯一的持久化边界；内核自带 `InMemoryTokenStore`，生产环境使用安全存储（见 `example/`）。
 - **统一错误**：领域失败映射为 `AppException`（来自本包的错误内核）；绝不直接跨公共面抛裸 `Exception`。
 - **面向网络**：`AuthTokenSource` 是扩展点，让 Dio / GraphQL 拦截器能为请求附加 `Authorization: Bearer` 头。
@@ -54,7 +58,7 @@
 
 ```yaml
 dependencies:
-  zero_auth: ^0.2.0
+  zero_auth: ^0.3.0
 ```
 
 ### Git
@@ -64,7 +68,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v0.2.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
+      ref: release/v0.3.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
 ```
 
 ## 使用方法

@@ -85,6 +85,12 @@ Future<void> main() async {
         print('show spinner / 显示加载');
       case Authenticated(:final session):
         print('hi ${session.displayName}, token=${session.accessToken}');
+      case Refreshing(:final session):
+        // Still signed in: only the token is being renewed.
+        // 仍处于登录态：只是令牌在续期。
+        print('renewing ${session.displayName} / 续期中');
+      case LoggingOut():
+        print('signing out / 登出中');
       case AuthError(:final error):
         print('failed: ${error.message} (${error.code})');
     }
@@ -369,8 +375,13 @@ StreamBuilder<AuthState>(
   stream: auth.state,
   builder: (context, snap) => switch (snap.data) {
     Unauthenticated() => const LoginPage(),
-    Authenticating() => const Center(child: CircularProgressIndicator()),
-    Authenticated(:final session) => HomePage(session: session),
+    Authenticating() || LoggingOut() =>
+      const Center(child: CircularProgressIndicator()),
+    // Keep the user signed in while the token renews, otherwise a routine
+    // refresh would flash the login page (or a blank "_" fallback).
+    // 令牌续期期间保持登录态，否则一次例行刷新会闪回登录页（或落到 `_` 兜底分支）。
+    Authenticated(:final session) || Refreshing(:final session) =>
+      HomePage(session: session),
     AuthError(:final error) => ErrorView(message: error.message),
     _ => const SizedBox.shrink(),
   },
@@ -477,12 +488,20 @@ Future<AuthSession> refresh();
 | Behaviour / 行为 | Detail / 说明 |
 |---|---|
 | Single-flight / 单飞 | Concurrent callers share one `Future`; the guard resets in `finally`. 并发调用共享同一个 `Future`，守卫在 `finally` 中释放。 |
-| Preconditions | Needs an active session **and** a non-null `refreshToken`; otherwise throws `AuthException('Cannot refresh without a session')` / `('Session has no refresh token')`. |
-| On success | Persists via `TokenStore.save`, emits `Authenticated(newSession)`. |
-| On failure | **No state change**; the returned `Future` completes with `AuthException`. UI keeps showing `Authenticated`. |
-| Expiry | `AuthSession.isExpired` is `false` when `expiresAt == null` (expiry unknown ⇒ assume valid). |
+| Preconditions | Needs an active session **and** a non-null `refreshToken`; otherwise throws `NoActiveSessionException` / `RefreshTokenMissingException`. 需要活动会话且 `refreshToken` 非空，否则抛出这两个异常。 |
+| In flight | Emits `Refreshing(session)`; the previous session stays usable meanwhile / 期间发出 `Refreshing(session)`，旧会话仍可用。 |
+| On success | Persists via `TokenStore.save`, emits `Authenticated(newSession)`. 经 `TokenStore.save` 持久化并发出 `Authenticated(newSession)`。 |
+| On failure | Emits `AuthError`, then either `Unauthenticated` (unrecoverable) or back to the previous `Authenticated` (transient) per `refreshFailurePolicy`; the returned `Future` also completes with the typed error. 先发 `AuthError`，再按策略转为 `Unauthenticated`（不可恢复）或回到上一个 `Authenticated`（瞬时）；返回的 `Future` 同时以类型化错误完成。 |
+| Expiry | `AuthSession.isExpired` is `false` when `expiresAt == null` (expiry unknown ⇒ assume valid). Use `isExpiredAt(now)` to evaluate against your own clock. |
 
-No built-in timer / **核心不内置定时器**：`zero_auth` 不会自动排程刷新。Choose one / 任选其一：
+> **0.3.0 note / 说明：** passing `autoRefreshAhead` to `AuthManager` lets the core
+> schedule the renewal for you (still single-flight, failures handled internally).
+> Everything below still applies if you prefer to drive refreshes yourself.
+
+> **0.3.0 说明：** 给 `AuthManager` 传入 `autoRefreshAhead` 即可让内核替你排程续期
+> （依然单飞，失败在内部处理）。如果你偏好自己驱动刷新，下面的内容仍然适用。
+
+No built-in timer unless asked / **默认不内置定时器**：`zero_auth` 默认不自动排程刷新（除非传入 `autoRefreshAhead`）。Choose one / 任选其一：
 
 ```dart
 // A) Refresh lazily, right before a call that needs a fresh token / 惰性刷新
@@ -576,14 +595,19 @@ final class AuthManager implements AuthTokenSource {
 | `tokenStore` | `final TokenStore` | Defaults to `InMemoryTokenStore` |
 | `current` | `AuthState get current` | Current state, always available / 当前状态，始终可读 |
 | `state` | `Stream<AuthState> get state` | Broadcast, replays last value / 广播且重放最近值 |
-| `currentSession` | `AuthSession? get currentSession` | `null` unless `Authenticated` |
-| `accessToken` | `String? get accessToken` | From `AuthTokenSource`; `null` when signed out |
-| `restore()` | `Future<void>` | Loads from `TokenStore`, emits `Authenticated` / `Unauthenticated` |
+| `autoRefreshAhead` | `Duration?` | Proactive renewal lead time; `null` disables it / 主动续期提前量，`null` 为关闭 |
+| `refreshFailurePolicy` | `RefreshFailurePolicy` | Whether a failed refresh signs out / 刷新失败是否登出 |
+| `clock` | `DateTime Function()` | Time source; defaults to the system clock / 时间源，默认系统时钟 |
+| `currentSession` | `AuthSession? get currentSession` | `null` unless `Authenticated` / `Refreshing` |
+| `accessToken` | `String? get accessToken` | From `AuthTokenSource`; may already be expired — see `validAccessToken` / 可能已过期，见 `validAccessToken` |
+| `restore()` | `Future<void> restore({bool refreshIfExpired = true})` | Loads from `TokenStore`; an expired session is refreshed first, or dropped when it cannot renew / 载入持久化会话；过期会话先续期，无法续期则丢弃 |
 | `login()` | `Future<Authenticated> login(Credentials)` | Emits `Authenticating → Authenticated`; on failure emits `AuthError` **and rethrows** |
 | `register()` | `Future<Authenticated> register(RegistrationInput)` | Same semantics as `login` |
-| `logout()` | `Future<void>` | Best-effort `strategy.logout`, then `clear()`, then emits `Unauthenticated` |
-| `refresh()` | `Future<AuthSession>` | Single-flight; no state change on failure |
-| `dispose()` | `Future<void>` | Closes the internal stream controller |
+| `loginWith()` | `Future<Authenticated> loginWith(Future<AuthSession> Function(AuthStrategy))` | Adopts a session from any flow (OAuth, magic link, passkey) / 接纳任意流程的会话 |
+| `logout()` | `Future<void>` | Emits `LoggingOut`, best-effort `strategy.logout`, then `clear()`, then `Unauthenticated` |
+| `refresh()` | `Future<AuthSession>` | Emits `Refreshing`; single-flight; on failure applies `refreshFailurePolicy` / 发出 `Refreshing`；单飞；失败时按策略处理 |
+| `validAccessToken()` | `Future<String?>` | Never returns an expired token; refreshes first when needed / 绝不返回过期令牌，必要时先续期 |
+| `dispose()` | `Future<void>` | Closes the internal stream controller and cancels proactive refresh |
 
 ### 11.2 `AuthState` (sealed)
 
@@ -592,10 +616,25 @@ final class AuthManager implements AuthTokenSource {
 | `Unauthenticated` | – | No session |
 | `Authenticating` | – | login / register in flight |
 | `Authenticated` | `AuthSession session` | Session active |
+| `Refreshing` | `AuthSession session` | Renewal in flight; the previous session stays usable |
+| `LoggingOut` | `AuthSession session` | Logout in flight; that session is being discarded |
 | `AuthError` | `AppException error` | Terminal failure |
 
-`bool get isAuthenticated` — `true` only for `Authenticated`.
-Exhaustive `switch` over the sealed hierarchy is enforced by the compiler.
+`bool get isAuthenticated` — `true` for `Authenticated` **and** `Refreshing`, so a
+token renewal never unmounts signed-in UI. `bool get isBusy` covers
+`Authenticating`, `Refreshing` and `LoggingOut`.
+
+`isAuthenticated` 在 `Authenticated` 与 `Refreshing` 下均为 `true`，令牌续期不会卸载
+已登录界面；`isBusy` 覆盖 `Authenticating`、`Refreshing`、`LoggingOut`。
+
+Prefer those two getters over `state is Authenticated` and over exhaustive
+`switch` when you do not need per-case payloads — they keep compiling as states
+evolve. Exhaustive `switch` is still enforced by the compiler; note that `0.3.0`
+added two subtypes, so existing switches may need the new cases.
+
+不需要按 case 取负载时，优先使用这两个属性而不是 `state is Authenticated` 或穷举
+`switch`，这样状态演进也不会编译失败。穷举 `switch` 依然由编译器保证；注意 `0.3.0`
+新增了两个子类，已有 switch 可能需要补上新分支。
 
 ### 11.3 `AuthSession`
 

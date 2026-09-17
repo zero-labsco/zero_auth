@@ -2,16 +2,28 @@
 
 ## States / 状态
 
-`AuthState` is a sealed class with four subtypes:
+`AuthState` is a sealed class with six subtypes:
 
-`AuthState` 是一个密封类，包含四个子类型：
+`AuthState` 是一个密封类，包含六个子类型：
 
 | State | Fields | Meaning |
 |-------|-------|---------|
-| `AuthUnauthenticated` | — | No session / 无会话 |
-| `Authenticating` | — | `login`/`register`/`restore` in flight / 登录/注册/恢复进行中 |
+| `Unauthenticated` | — | No session / 无会话 |
+| `Authenticating` | — | `login`/`register` in flight / 登录/注册进行中 |
 | `Authenticated` | `session: AuthSession` | A valid session / 有效会话 |
+| `Refreshing` | `session: AuthSession` | Renewal in flight; the previous session is still usable / 续期进行中，旧会话仍可用 |
+| `LoggingOut` | `session: AuthSession` | `logout()` in flight; that session is being discarded / 登出进行中，该会话即将被丢弃 |
 | `AuthError` | `error: AppException` | Last operation failed / 上一次操作失败 |
+
+Two helpers save you from spelling out every case:
+
+两个辅助属性可避免你手写全部分支：
+
+- `state.isAuthenticated` — `true` for `Authenticated` **and** `Refreshing`, so a
+  renewal never unmounts your signed-in UI. / 在 `Authenticated` 与 `Refreshing`
+  下均为 `true`，续期不会卸载已登录界面。
+- `state.isBusy` — `true` while `Authenticating`, `Refreshing` or `LoggingOut`. /
+  在 `Authenticating`、`Refreshing`、`LoggingOut` 期间为 `true`。
 
 ## The stream / 状态流
 
@@ -37,21 +49,40 @@ auth.state.listen((state) {
 ## Transitions / 状态转移
 
 ```
-                login/register ──► Authenticating ──► Authenticated
-   Unauthenticated ◄──────────────────────────────────────┘  (error)
-        ▲                                                          │ logout
-        │                                                          ▼
-        └─────────────────────── AuthError ◄── refresh fails ── Authenticated
-        └──────────────────────────── restore() finds nothing
+          login/register ──► Authenticating ──► Authenticated
+                                                    │  ▲
+                                        refresh     │  │ success
+                                        ─────────►  ▼  │
+                                                Refreshing
+                                                    │
+                                          failure   │
+                                                    ▼
+                                              AuthError ──policy: sign out──► Unauthenticated
+                                                    └──policy: keep session─► Authenticated (old session)
+
+   Authenticated ──logout──► LoggingOut ──► Unauthenticated
+   Unauthenticated ──restore() finds nothing / nothing persisted──► Unauthenticated
 ```
 
-- `restore()` finds a persisted session → `Authenticated`; none → stays `Unauthenticated`.
-- A failed `login`/`register` → `AuthError` (the previous state is retained as the "last good" state if any).
-- A failed `refresh` clears the session → `AuthError`.
+- `restore()` restores a live session → `Authenticated`.
+- `restore()` restores an **expired** session → attempts `Refreshing`; if it
+  cannot be renewed (or there is no refresh token) the store is cleared and it
+  lands on `Unauthenticated`. `restore(refreshIfExpired: false)` restores it
+  verbatim instead.
+- A failed `login`/`register` → `AuthError`, and the future rethrows.
+- A failed `refresh` → `AuthError`, followed by `Unauthenticated` when the
+  [failure policy](#refresh-failure-policy) considers the grant unrecoverable,
+  or by `Authenticated` (previous session) when it looks transient.
+- Duplicate consecutive emissions are suppressed, so listeners only rebuild on a
+  real change.
 
-- `restore()` 找到持久化会话 → `Authenticated`；找不到 → 保持 `Unauthenticated`。
-- `login`/`register` 失败 → `AuthError`（若有，则保留上一个"良好"状态）。
-- `refresh` 失败清空会话 → `AuthError`。
+- `restore()` 恢复未过期会话 → `Authenticated`。
+- `restore()` 恢复**已过期**会话 → 先走 `Refreshing`；若无法续期（或没有刷新令牌），
+  则清空存储并落到 `Unauthenticated`。`restore(refreshIfExpired: false)` 则原样恢复。
+- `login`/`register` 失败 → `AuthError`，同时 future 再次抛出错误。
+- `refresh` 失败 → `AuthError`；随后由[失败策略](#refresh-failure-policy)决定：
+  认为授权不可恢复则转 `Unauthenticated`，认为只是瞬时故障则回到 `Authenticated`。
+- 连续重复的状态会被抑制，监听器只会在真正变化时重建。
 
 ## Next Steps / 下一步
 

@@ -8,8 +8,11 @@
 
 ```dart
 final auth = AuthManager(
-  strategy: MyAuthStrategy(),   // how to talk to the backend / 如何与后端通信
+  strategy: MyAuthStrategy(),     // how to talk to the backend / 如何与后端通信
   tokenStore: SecureTokenStore(), // where to persist tokens / 令牌持久化位置
+  autoRefreshAhead: const Duration(minutes: 5), // proactive renewal / 主动续期
+  refreshFailurePolicy: defaultRefreshFailurePolicy, // sign-out rule / 登出规则
+  clock: () => DateTime.now(),    // time source (tests, skew) / 时间源（测试、时钟偏移）
 );
 ```
 
@@ -17,8 +20,10 @@ final auth = AuthManager(
 |------|-------|--------|
 | Backend endpoints & auth scheme | `AuthStrategy` | What `login`/`refresh`/… actually do / `login`/`refresh` 等的实际行为 |
 | Token persistence | `TokenStore` | Disk / secure storage / in-memory / 磁盘/安全存储/内存 |
-| Refresh timing | `AuthSession.expiresAt` | `isExpired` drives proactive refresh / 由 `isExpired` 驱动主动刷新 |
-| Token injection | `AuthTokenSource` | How the bearer token reaches HTTP clients / 令牌如何到达 HTTP 客户端 |
+| Refresh timing | `AuthSession.expiresAt` + `autoRefreshAhead` | Proactive renewal is scheduled that far before expiry / 在过期前该时长调度主动续期 |
+| Refresh failure handling | `refreshFailurePolicy` | Whether a failed refresh signs the user out / 刷新失败是否让用户登出 |
+| Time source | `clock` | Drives expiry maths and proactive scheduling; inject one for deterministic tests or to tolerate device clock skew / 驱动过期计算与主动刷新调度；注入时钟可实现确定性测试或容忍设备时钟偏移 |
+| Token injection | `AuthTokenSource` / `validAccessToken()` | How the bearer token reaches HTTP clients, optionally renewing an expired token first / 令牌如何到达 HTTP 客户端，必要时先续期过期令牌 |
 
 ## Refresh strategy / 刷新策略
 
@@ -29,9 +34,41 @@ final auth = AuthManager(
 - Proactively, when `session.isExpired` is approaching, before a request. / 在请求前、当 `session.isExpired` 临近时主动刷新。
 - Reactively, on a `401` from your API (see [Network Integration](Network-Integration)). / 响应式地，在 API 返回 `401` 时刷新。
 
-A failed refresh clears the session and emits `AuthError`; your app should route the user back to login.
+A failed refresh is always reported through `AuthError` (and the rethrown future),
+but whether it **ends the session** is decided by `refreshFailurePolicy`. See
+**Refresh failure policy** below.
 
-刷新失败会清空会话并发出 `AuthError`，应用应将用户引导回登录。
+刷新失败总会通过 `AuthError`（以及重新抛出的 future）上报，但是否**终止会话**由
+`refreshFailurePolicy` 决定，详见下方「刷新失败策略」。
+
+## Refresh failure policy / 刷新失败策略
+
+The default policy signs the user out only for failures that can never succeed
+again, keeping the session when the failure looks transient (so a network blip
+does not log people out):
+
+默认策略仅在失败「注定无法重试成功」时让用户登出；看起来像瞬时故障时保留会话（避免一次
+网络抖动就把人踢下线）：
+
+| Failure / 失败类型 | Default outcome / 默认结果 |
+|---|---|
+| `SessionExpiredException`, `InvalidCredentialsException` | Store cleared → `Unauthenticated` / 清空存储 → `Unauthenticated` |
+| Anything else (network, 5xx…) / 其它（网络、5xx 等） | Session kept → back to `Authenticated` / 保留会话 → 回到 `Authenticated` |
+
+```dart
+// Never sign out on a failed refresh — useful when refresh tokens are
+// long-lived and your backend is occasionally flaky.
+// 刷新失败也绝不登出——适用于刷新令牌长期有效、后端偶尔不稳定的场景。
+final auth = AuthManager(
+  strategy: strategy,
+  refreshFailurePolicy: (AppException error) => false,
+);
+```
+
+Proactive (background) refresh failures are handled internally, so a scheduled
+renewal can never surface as an unhandled async error.
+
+主动（后台）刷新的失败会在内部处理，因此定时续期永远不会以未处理异步错误的形式泄漏。
 
 ## No global singletons / 没有全局单例
 
