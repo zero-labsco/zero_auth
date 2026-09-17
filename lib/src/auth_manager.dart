@@ -76,11 +76,11 @@ final class AuthManager implements AuthTokenSource {
     Duration? autoRefreshAhead,
     RefreshFailurePolicy? refreshFailurePolicy,
     DateTime Function()? clock,
-  })  : tokenStore = tokenStore ?? InMemoryTokenStore(),
-        _autoRefreshAhead = autoRefreshAhead,
-        refreshFailurePolicy =
-            refreshFailurePolicy ?? defaultRefreshFailurePolicy,
-        clock = clock ?? _systemClock;
+  }) : tokenStore = tokenStore ?? InMemoryTokenStore(),
+       _autoRefreshAhead = autoRefreshAhead,
+       refreshFailurePolicy =
+           refreshFailurePolicy ?? defaultRefreshFailurePolicy,
+       clock = clock ?? _systemClock;
 
   final Duration? _autoRefreshAhead;
 
@@ -120,10 +120,10 @@ final class AuthManager implements AuthTokenSource {
   /// 当前活动会话；未认证时为 `null`。在 [Authenticated] 与 [Refreshing] 下均可用
   /// （续期中会话依然有效），但 [LoggingOut] 下为空。
   AuthSession? get currentSession => switch (_state) {
-        Authenticated(:final session) => session,
-        Refreshing(:final session) => session,
-        _ => null,
-      };
+    Authenticated(:final session) => session,
+    Refreshing(:final session) => session,
+    _ => null,
+  };
 
   @override
   String? get accessToken => currentSession?.accessToken;
@@ -148,8 +148,9 @@ final class AuthManager implements AuthTokenSource {
     // session is restored verbatim, exactly as persisted.
     // 仅在调用方开启时才对过期会话做再处理；否则原样恢复会话，与持久化内容一致。
     if (expired && refreshIfExpired) {
-      final renewed =
-          session.refreshToken != null ? await _tryRefresh(session) : false;
+      final renewed = session.refreshToken != null
+          ? await _tryRefresh(session)
+          : false;
       if (!renewed) {
         await tokenStore.clear();
         _emit(const Unauthenticated());
@@ -295,11 +296,11 @@ final class AuthManager implements AuthTokenSource {
   /// being discarded during [LoggingOut].
   /// 驱动进行中操作或已建立认证的会话，包含在 [LoggingOut] 期间正被丢弃的那个。
   AuthSession? get _activeSession => switch (_state) {
-        Authenticated(:final session) => session,
-        Refreshing(:final session) => session,
-        LoggingOut(:final session) => session,
-        _ => null,
-      };
+    Authenticated(:final session) => session,
+    Refreshing(:final session) => session,
+    LoggingOut(:final session) => session,
+    _ => null,
+  };
 
   bool _isCurrent(int epoch) => !_disposed && epoch == _epoch;
 

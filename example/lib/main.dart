@@ -56,14 +56,14 @@ class _HttpAuthStrategy implements AuthStrategy {
       res.data as Map<String, dynamic>;
 
   AuthSession _toSession(Map<String, dynamic> data) => AuthSession(
-        accessToken: data['accessToken'] as String,
-        refreshToken: RefreshToken(data['refreshToken'] as String),
-        expiresAt: data['expiresIn'] != null
-            ? DateTime.now().add(Duration(seconds: data['expiresIn'] as int))
-            : null,
-        userId: data['userId'] as String,
-        displayName: data['displayName'] as String,
-      );
+    accessToken: data['accessToken'] as String,
+    refreshToken: RefreshToken(data['refreshToken'] as String),
+    expiresAt: data['expiresIn'] != null
+        ? DateTime.now().add(Duration(seconds: data['expiresIn'] as int))
+        : null,
+    userId: data['userId'] as String,
+    displayName: data['displayName'] as String,
+  );
 
   @override
   Future<AuthSession> login(Credentials credentials) async {
@@ -185,9 +185,9 @@ class _DemoAppState extends State<DemoApp> {
   }
 
   void _toggleBackend(bool value) => setState(() {
-        _useBackend = value;
-        _init();
-      });
+    _useBackend = value;
+    _init();
+  });
 
   /// Runs an auth action and swallows the rethrown error: [AuthManager] already
   /// surfaces it as an [AuthError] state, so there is nothing left to handle.

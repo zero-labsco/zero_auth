@@ -73,28 +73,28 @@ final class AuthSession {
   /// 序列化为 JSON 安全映射，供持久化使用（如写入磁盘或安全存储的 [TokenStore]）。
   /// 为 `null` 的字段会被省略。
   Map<String, Object?> toJson() => {
-        'accessToken': accessToken,
-        if (refreshToken != null) 'refreshToken': refreshToken!.value,
-        if (expiresAt != null) 'expiresAt': expiresAt!.toIso8601String(),
-        if (userId != null) 'userId': userId,
-        if (displayName != null) 'displayName': displayName,
-        if (claims != null) 'claims': claims,
-      };
+    'accessToken': accessToken,
+    if (refreshToken != null) 'refreshToken': refreshToken!.value,
+    if (expiresAt != null) 'expiresAt': expiresAt!.toIso8601String(),
+    if (userId != null) 'userId': userId,
+    if (displayName != null) 'displayName': displayName,
+    if (claims != null) 'claims': claims,
+  };
 
   /// Deserialize from a map produced by [toJson].
   /// 从 [toJson] 生成的映射反序列化。
   factory AuthSession.fromJson(Map<String, Object?> json) => AuthSession(
-        accessToken: json['accessToken'] as String,
-        refreshToken: json['refreshToken'] == null
-            ? null
-            : RefreshToken(json['refreshToken'] as String),
-        expiresAt: json['expiresAt'] == null
-            ? null
-            : DateTime.parse(json['expiresAt'] as String),
-        userId: json['userId'] as String?,
-        displayName: json['displayName'] as String?,
-        claims: (json['claims'] as Map?)?.cast<String, Object?>(),
-      );
+    accessToken: json['accessToken'] as String,
+    refreshToken: json['refreshToken'] == null
+        ? null
+        : RefreshToken(json['refreshToken'] as String),
+    expiresAt: json['expiresAt'] == null
+        ? null
+        : DateTime.parse(json['expiresAt'] as String),
+    userId: json['userId'] as String?,
+    displayName: json['displayName'] as String?,
+    claims: (json['claims'] as Map?)?.cast<String, Object?>(),
+  );
 
   @override
   bool operator ==(Object other) =>
