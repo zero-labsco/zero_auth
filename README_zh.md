@@ -148,7 +148,7 @@ dart run bin/server.dart        # 监听 http://localhost:8080
 | `POST /logout` | – | `200 { "ok": true }` |
 | `GET /me` | 请求头 `Authorization: Bearer demo-access-token` | `200 { "userId", "displayName" }` · `401 unauthorized` |
 
-用户名任意，但**密码必须是 `b`** —— 其它值都会返回 `401`，这是观察 `AuthError` 分支最简单的方式。已开启 CORS，Flutter Web 构建可直接调用。
+使用 **`user` / `user`** 登录 —— 其它值都会返回 `401`，这是观察 `AuthError` 分支最简单的方式。后端签发的是真实的 HMAC-SHA256 JWT，带刷新令牌轮换与重放检测，并记录每条请求日志。已开启 CORS，Flutter Web 构建可直接调用。
 
 **2. 运行示例 App**
 
@@ -158,7 +158,7 @@ flutter run
 ```
 
 - App **默认连接真实后端**；拨动 AppBar 开关可回退到离线假后端（`_DemoStrategy`），无需起服务。
-- 用任意用户名 + 密码 `b` 登录，再点击 **Call /me**，即可看到 `AuthInterceptor` 附加 `Authorization: Bearer …`，后端回显用户信息。
+- 用 `user` / `user` 登录，再点击 **Call /me**，即可看到拦截器附加 `Authorization: Bearer …`，后端回显用户信息。
 - 关掉后端再登录，会看到映射后的 `network_unreachable` 错误，而不是裸的 `DioException`。
 
 > Android 模拟器请使用 `http://10.0.2.2:8080` 代替 `localhost`（见 `example/lib/main.dart` 的 `_baseUrl`）。

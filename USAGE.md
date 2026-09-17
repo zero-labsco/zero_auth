@@ -780,7 +780,7 @@ test('login emits Authenticated and persists', () async {
   final auth = AuthManager(strategy: FakeStrategy());
   addTearDown(auth.dispose);
 
-  await auth.login(Credentials(username: 'a', password: 'b'));
+  await auth.login(const Credentials(username: 'user', password: 'user'));
 
   expect(auth.current, isA<Authenticated>());
   expect(auth.accessToken, 'a');

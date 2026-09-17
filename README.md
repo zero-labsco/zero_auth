@@ -148,7 +148,7 @@ dart run bin/server.dart        # listens on http://localhost:8080
 | `POST /logout` | – | `200 { "ok": true }` |
 | `GET /me` | header `Authorization: Bearer demo-access-token` | `200 { "userId", "displayName" }` · `401 unauthorized` |
 
-Any username works, but **the password must be `b`** — anything else returns `401`, which is the easiest way to watch the `AuthError` path. CORS is enabled, so a Flutter Web build can call it directly.
+Sign in with **`user` / `user`** — anything else returns `401`, which is the easiest way to watch the `AuthError` path. Tokens are real HMAC-SHA256 JWTs with refresh-token rotation and replay detection, and every request is logged. CORS is enabled, so a Flutter Web build can call it directly.
 
 **2. Run the example app**
 
@@ -158,7 +158,7 @@ flutter run
 ```
 
 - The app talks to the **real backend by default**; flip the AppBar switch to fall back to the offline fake (`_DemoStrategy`) when you don't want to run the server.
-- Log in with any username and password `b`, then press **Call /me** to watch `AuthInterceptor` attach `Authorization: Bearer …` and the backend echo the user back.
+- Log in with `user` / `user`, then press **Call /me** to watch the interceptor attach `Authorization: Bearer …` and the backend echo the user back.
 - Stop the backend and log in again to see the mapped `network_unreachable` error instead of a raw `DioException`.
 
 > On an Android emulator use `http://10.0.2.2:8080` instead of `localhost` (`_baseUrl` in `example/lib/main.dart`).

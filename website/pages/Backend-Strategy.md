@@ -58,9 +58,9 @@ AuthSession(
 
 ## Example backend / 演示后端
 
-`server/` is a zero-dependency `dart:io` demo backend exercising `/login`, `/refresh`, `/logout` and `/me`. Run it with `dart run bin/server.dart` on port `8080`.
+`server/` is a layered `dart:io` demo backend exercising `/login`, `/refresh`, `/logout`, `/me` and `/health`. Run it with `dart run bin/server.dart` on port `8080`. It issues real HMAC-SHA256 JWTs with refresh-token rotation and replay detection, and logs every request with its status and duration. The demo account is `user` / `user`.
 
-`server/` 是一个零依赖的 `dart:io` 演示后端，提供 `/login`、`/refresh`、`/logout` 与 `/me`。用 `dart run bin/server.dart` 在 `8080` 端口启动。
+`server/` 是一个分层的 `dart:io` 演示后端，提供 `/login`、`/refresh`、`/logout`、`/me` 与 `/health`。用 `dart run bin/server.dart` 在 `8080` 端口启动。它签发真实的 HMAC-SHA256 JWT，带刷新令牌轮换与重放检测，并记录每条请求的状态码与耗时。演示账号为 `user` / `user`。
 
 ## Next Steps / 下一步
 

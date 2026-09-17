@@ -5,6 +5,9 @@ version: 0.1.0
 environment:
   sdk: ^3.4.0
 
-dependencies: {}
+dependencies:
+  # Real token signing (HMAC-SHA256 JWTs). This backend is repo-only and never
+  # published, depending on `crypto` costs nothing at the package level.
+  crypto: ^3.0.6
 
 dev_dependencies: {}

@@ -24,7 +24,7 @@ This file defines the architecture, coding conventions, and required workflows f
   - `error/` — the error kernel: `app_exception.dart` (`AppException`), `result.dart` (`Result<T>` = `Ok` / `Err`), `error.dart` (barrel).
 - `test/` — unit tests written with `package:test` (NOT `flutter_test`); `fake_async` is used for timer-driven refresh behaviour; `fake_strategy.dart` is the shared test double.
 - `example/` — Flutter example app (Android / iOS / Web / Windows). `main.dart` (state machine UI + backend toggle), `dio_interceptor.dart` (`AuthInterceptor`, a ready-to-copy Dio integration), `secure_token_store.dart` (`flutter_secure_storage` reference `TokenStore`; not wired into `main.dart`, it is reference material for consumers).
-- `server/` — a zero-dependency `dart:io` demo backend used by the example (`dart run bin/server.dart`, port `8080`); endpoints `/login`, `/refresh`, `/logout`, `/me`; any username, password must be `b`; CORS enabled. It is repo-only and **not** shipped to pub.dev (excluded via `.pubignore`).
+- `server/` — a layered `dart:io` demo backend used by the example (`dart run bin/server.dart`, port `8080`); endpoints `/login`, `/refresh`, `/logout`, `/me`, `/health`. It issues real HMAC-SHA256 JWTs (via the `crypto` package) with refresh-token rotation, family revocation and replay detection, and logs every request with status and duration. Credentials are `user` / `user`; CORS enabled. Structure: `bin/server.dart` only bootstraps, everything else lives under `lib/` (`config`, `logging`, `http`, `auth`, `handlers`). It is repo-only and **not** shipped to pub.dev (excluded via `.pubignore`).
 - `zero_auth_design.md` — repo-internal design notes (excluded from the published package).
 - `website/` — the **Nextra + Next.js** documentation site (Animal-Crossing theme, copied from the `zero_inspector_kit` site). Source lives under `website/pages/*.md`; it builds to `website/out/` and is then synced into `docs/` (the GitHub Pages root) by `website/scripts/sync-docs.mjs` (run automatically via a git pre-commit hook installed with `npm --prefix website run setup-hook`). `website/` is excluded from the pub package via `.pubignore`. The homepage is `website/pages/index.md`; version strings use the `__ZERO_AUTH_VERSION__` placeholder, injected from `pubspec.yaml` at build time.
 
@@ -160,7 +160,7 @@ cd d:\FlutterProgram\zero_auth\example
 flutter run
 ```
 - The example defaults to the **real backend** (`_useBackend = true`); the AppBar switch falls back to the offline double `_DemoStrategy`.
-- Any username works; the password must be `b`. A wrong password shows the `AuthError` path; `Call /me` proves the bearer header reaches the backend.
+- The demo account is `user` / `user`. A wrong password shows the `AuthError` path; `Call /me` proves the bearer header reaches the backend. Access tokens live 120s, so pressing **Refresh** (or calling `/me` after expiry) shows renewal and rotation in the logs.
 - On an Android emulator use `http://10.0.2.2:8080` (`_baseUrl` in `example/lib/main.dart`).
 
 ### Release and publish

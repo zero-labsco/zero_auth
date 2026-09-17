@@ -16,20 +16,27 @@ void main() => runApp(const DemoApp());
 /// It enforces the same rule as the real demo backend (password must be
 /// [_validPassword]), so the failure path is reachable without a server.
 class _DemoStrategy implements AuthStrategy {
-  static const _validPassword = 'b';
+  static const _validUsername = 'user';
+  static const _validPassword = 'user';
 
   @override
   Future<AuthSession> login(Credentials credentials) async {
     await Future<void>.delayed(const Duration(milliseconds: 300));
-    if (credentials.password != _validPassword) {
-      throw AuthException('Invalid password', code: 'invalid_credentials');
+    if (credentials.username != _validUsername ||
+        credentials.password != _validPassword) {
+      throw AuthException(
+        'Invalid username or password',
+        code: 'invalid_credentials',
+      );
     }
-    return const AuthSession(
-      accessToken: 'demo-access-token',
-      refreshToken: RefreshToken('demo-refresh-token'),
-      expiresAt: null, // no expiry -> treated as still valid
-      userId: 'demo-user',
-      displayName: 'Demo User',
+    // Mirrors the real backend: a short-lived access token plus a refresh
+    // token, so the renewal paths stay reachable offline too.
+    return AuthSession(
+      accessToken: 'demo-access-${DateTime.now().millisecondsSinceEpoch}',
+      refreshToken: const RefreshToken('demo-refresh-token'),
+      expiresAt: DateTime.now().add(const Duration(minutes: 2)),
+      userId: _validUsername,
+      displayName: '$_validUsername@demo',
     );
   }
 
@@ -41,8 +48,9 @@ class _DemoStrategy implements AuthStrategy {
   Future<void> logout(SessionHandle handle) async {}
 
   @override
-  Future<AuthSession> refresh(RefreshToken token) async =>
-      login(const Credentials(username: 'demo-user', password: _validPassword));
+  Future<AuthSession> refresh(RefreshToken token) async => login(
+        const Credentials(username: _validUsername, password: _validPassword),
+      );
 }
 
 /// Real HTTP backend strategy. Talks to the Dart server in `../../server`.
@@ -157,7 +165,7 @@ class _DemoAppState extends State<DemoApp> {
   late AuthManager _auth;
   late Dio _dio;
 
-  final _username = TextEditingController(text: 'a');
+  final _username = TextEditingController(text: 'user');
   final _password = TextEditingController();
 
   @override
@@ -280,7 +288,7 @@ class _DemoAppState extends State<DemoApp> {
                       controller: _password,
                       obscureText: true,
                       decoration: const InputDecoration(
-                        labelText: 'password (use "b" to succeed)',
+                        labelText: 'password (use "user")',
                       ),
                     ),
                     const SizedBox(height: 12),
