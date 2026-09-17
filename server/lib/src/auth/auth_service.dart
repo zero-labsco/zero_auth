@@ -68,7 +68,28 @@ final class AuthService {
   final Logger logger;
 
   /// Lifetime granted to every access token this service issues.
-  final Duration accessTtl;
+  ///
+  /// Mutable so the debug endpoints can shorten it on demand and watch the
+  /// client renew.
+  Duration accessTtl;
+
+  /// Access tokens issued at or before this moment are rejected, which is how
+  /// the debug "expire now" endpoint simulates expiry for tokens that are
+  /// otherwise still inside their lifetime.
+  DateTime? _accessTokensInvalidatedBefore;
+
+  /// Rejects every access token issued so far. The next login or refresh clears
+  /// the watermark by producing a token issued afterwards.
+  void invalidateAccessTokens() {
+    _accessTokensInvalidatedBefore = DateTime.now();
+    logger.warn('debug: access tokens issued so far are now rejected');
+  }
+
+  /// Clears the invalidation watermark.
+  void clearInvalidation() {
+    _accessTokensInvalidatedBefore = null;
+    logger.info('debug: access token invalidation cleared');
+  }
 
   AuthResult login(String username, String password) {
     final user = users.authenticate(username, password);
@@ -114,6 +135,21 @@ final class AuthService {
   UserRecord? userForAccessToken(String accessToken) {
     final claims = tokens.verify(accessToken, expectedType: TokenType.access);
     if (claims == null) return null;
+
+    // Simulated expiry: the token is valid, but was issued before the debug
+    // watermark, so it must be treated as dead.
+    //
+    // Compared in milliseconds: `iat` is whole seconds, so two tokens issued in
+    // the same second as the invalidation could not otherwise be told apart.
+    final watermark = _accessTokensInvalidatedBefore;
+    if (watermark != null) {
+      final issuedAtMillis = claims[Claims.issuedAtMillis];
+      if (issuedAtMillis is! int ||
+          issuedAtMillis < watermark.millisecondsSinceEpoch) {
+        return null;
+      }
+    }
+
     final subject = TokenService.claimOf(claims, Claims.subject);
     if (subject == null) return null;
     return users.findById(subject);

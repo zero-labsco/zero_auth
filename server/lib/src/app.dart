@@ -4,6 +4,7 @@ import 'dart:io';
 import 'auth/auth_service.dart';
 import 'config.dart';
 import 'handlers/auth_controller.dart';
+import 'handlers/debug_controller.dart';
 import 'http/middleware.dart';
 import 'http/response.dart';
 import 'http/router.dart';
@@ -22,7 +23,13 @@ final class AuthServer {
       ..post('/refresh', _controller.refresh)
       ..post('/logout', _controller.logout)
       ..get('/me', _controller.me)
-      ..get('/health', _controller.health);
+      ..get('/health', _controller.health)
+      ..post('/debug/expire-access', _debug.expireAccess)
+      ..post('/debug/access-ttl', _debug.setAccessTtl)
+      ..post(
+        '/debug/reset',
+        (request) => _debug.reset(request, config.accessTtl),
+      );
   }
 
   final ServerConfig config;
@@ -35,13 +42,27 @@ final class AuthServer {
     logger: logger,
   );
 
+  late final DebugController _debug = DebugController(
+    auth: auth,
+    logger: logger,
+  );
+
   HttpServer? _server;
   Timer? _janitor;
 
   /// Binds the socket and starts serving. Also schedules periodic cleanup of
   /// expired refresh-token bookkeeping.
   Future<HttpServer> start() async {
-    final server = await HttpServer.bind(config.address, config.port);
+    final HttpServer server;
+    try {
+      server = await HttpServer.bind(config.address, config.port);
+    } on SocketException catch (error) {
+      logger.error(
+        'cannot bind ${config.host}:${config.port} ($error). '
+        'Another instance is probably still running on that port.',
+      );
+      rethrow;
+    }
     _server = server;
 
     _janitor = Timer.periodic(const Duration(minutes: 5), (_) {

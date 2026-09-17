@@ -11,6 +11,11 @@ abstract final class Claims {
   static const tokenId = 'jti';
   static const family = 'fam';
   static const issuedAt = 'iat';
+
+  /// Millisecond-precision issue time. The standard `iat` claim is whole
+  /// seconds, which is too coarse to tell "issued before this instant" apart
+  /// when both fall in the same second.
+  static const issuedAtMillis = 'iatms';
   static const expiresAt = 'exp';
 }
 
@@ -26,7 +31,7 @@ enum TokenType { access, refresh }
 final class TokenService {
   TokenService({
     required String secret,
-    Duration clockSkew = const Duration(seconds: 5),
+    Duration clockSkew = const Duration(seconds: 1),
     Random? random,
   })  : _secret = utf8.encode(secret),
         _clockSkew = clockSkew,
@@ -53,6 +58,7 @@ final class TokenService {
       Claims.tokenId: tokenId,
       Claims.family: family,
       Claims.issuedAt: _seconds(now),
+      Claims.issuedAtMillis: now.millisecondsSinceEpoch,
       Claims.expiresAt: _seconds(now.add(ttl)),
     });
   }

@@ -211,14 +211,50 @@ class _DemoAppState extends State<DemoApp> {
     try {
       final res = await _dio.get('$_baseUrl/me');
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('GET /me -> ${res.data}')));
+      _snack(context, 'GET /me -> ${res.data}');
     } catch (e) {
       if (!context.mounted) return;
-      ScaffoldMessenger.of(
+      _snack(context, 'GET /me failed: $e');
+    }
+  }
+
+  void _snack(BuildContext context, String message) {
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  /// Debug: tell the backend to reject every access token issued so far, so
+  /// `Call /me` starts failing until the session is refreshed.
+  Future<void> _expireTokenNow(BuildContext context) async {
+    try {
+      final res = await _dio.post('$_baseUrl/debug/expire-access');
+      if (!context.mounted) return;
+      _snack(context, 'expired -> ${res.data} (now press Call /me)');
+    } catch (e) {
+      if (!context.mounted) return;
+      _snack(context, 'expire failed: $e');
+    }
+  }
+
+  /// Debug: shorten the lifetime of newly issued tokens to [seconds], then
+  /// refresh so the active token really does expire that soon. Pressing
+  /// `Call /me` afterwards shows the transparent renewal.
+  Future<void> _expireTokenSoon(BuildContext context, int seconds) async {
+    try {
+      await _dio.post(
+        '$_baseUrl/debug/access-ttl',
+        data: {'seconds': seconds},
+      );
+      await _auth.refresh();
+      if (!context.mounted) return;
+      _snack(
         context,
-      ).showSnackBar(SnackBar(content: Text('GET /me failed: $e')));
+        'token now expires in ${seconds}s — press Call /me to watch renewal',
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      _snack(context, 'shorten failed: $e');
     }
   }
 
@@ -314,6 +350,19 @@ class _DemoAppState extends State<DemoApp> {
                       onPressed: () => unawaited(_invoke(() => auth.logout())),
                       child: const Text('Logout'),
                     ),
+                    // Debug hooks of the demo backend; only meaningful against
+                    // the real server.
+                    if (_useBackend) ...[
+                      const SizedBox(height: 8),
+                      ElevatedButton(
+                        onPressed: () => _expireTokenNow(context),
+                        child: const Text('Expire token now'),
+                      ),
+                      ElevatedButton(
+                        onPressed: () => _expireTokenSoon(context, 10),
+                        child: const Text('Expire in 10s'),
+                      ),
+                    ],
                   ],
                   const SizedBox(height: 12),
                   ElevatedButton(
