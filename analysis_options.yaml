@@ -3,6 +3,19 @@ include: package:flutter_lints/flutter.yaml
 # Additional information about this file can be found at
 # https://dart.dev/guides/language/analysis-options
 
+analyzer:
+  exclude:
+    # `server/` is a standalone package: it has its own pubspec and imports its
+    # own code as `package:zero_auth_example_server/...`, which the root package
+    # config cannot resolve. Analysing it from the repo root therefore reports
+    # "Target of URI doesn't exist" on every import. It is analysed separately,
+    # both locally (`cd server && dart analyze`) and in CI (server-check job).
+    # `server/` 是独立 package：有自己的 pubspec，并以
+    # `package:zero_auth_example_server/...` 引用自身代码，根包的 package config
+    # 无法解析该名称，因此在根目录分析会全部报 “Target of URI doesn't exist”。
+    # 它单独分析：本地用 `cd server && dart analyze`，CI 由 server-check job 负责。
+    - server/**
+
 linter:
   rules:
     # Consistent style / readability — only rules that don't require large-scale

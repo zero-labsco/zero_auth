@@ -117,6 +117,15 @@ cd ..\server && dart analyze  # demo backend
 cd d:\FlutterProgram\zero_auth && dart pub publish --dry-run   # 0 warnings
 ```
 
+> `server/` is a separate package and is **excluded from the root `dart analyze`**
+> (see `analyzer.exclude` in `analysis_options.yaml`). Analysing it from the root
+> fails on its `package:zero_auth_example_server/...` imports. Always analyse it
+> from inside the folder, as the line above does.
+>
+> `server/` 是独立 package，已被**排除在根目录的 `dart analyze` 之外**（见
+> `analysis_options.yaml` 的 `analyzer.exclude`）。在根目录分析会因
+> `package:zero_auth_example_server/...` 导入而失败，请始终在其目录内分析。
+
 ### Docs site preflight (always run before pushing `website/**`)
 
 The Pages site is **pre-built**: `pages.yml` uploads `docs/` verbatim and never
