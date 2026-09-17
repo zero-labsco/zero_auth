@@ -482,24 +482,15 @@ class _StatusCard extends StatelessWidget {
               const Divider(height: 24),
               _InfoRow(label: 'user', value: current.userId ?? '-'),
               _InfoRow(label: 'name', value: current.displayName ?? '-'),
-              _InfoRow(
-                label: 'token',
-                value: _preview(current.accessToken),
-                monospace: true,
-              ),
+              const SizedBox(height: 8),
+              _TokenBlock(token: current.accessToken),
+              const SizedBox(height: 8),
               _InfoRow(label: 'expiry', value: _expiryText(current)),
             ],
           ],
         ),
       ),
     );
-  }
-
-  /// Real JWTs are long; show a stable head so the row never overflows.
-  static String _preview(String token) {
-    const head = 28;
-    if (token.length <= head) return token;
-    return '${token.substring(0, head)}…';
   }
 
   static String _expiryText(AuthSession session) {
@@ -537,16 +528,59 @@ class _Badge extends StatelessWidget {
       );
 }
 
+/// The complete access token, wrapped over as many lines as it needs.
+///
+/// A JWT is a single unbreakable word: it contains no spaces, so the text
+/// layout has nowhere to break it and a plain [Text] overflows its box. Zero
+/// width spaces are inserted periodically to create break opportunities without
+/// changing what is rendered.
+class _TokenBlock extends StatelessWidget {
+  const _TokenBlock({required this.token});
+
+  final String token;
+
+  static const _chunk = 24;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'token',
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          _breakable(token),
+          style: theme.textTheme.bodySmall?.copyWith(
+            fontFamily: 'monospace',
+            height: 1.5,
+          ),
+        ),
+      ],
+    );
+  }
+
+  static String _breakable(String value) {
+    if (value.length <= _chunk) return value;
+    final buffer = StringBuffer();
+    for (var i = 0; i < value.length; i += _chunk) {
+      final end = i + _chunk < value.length ? i + _chunk : value.length;
+      if (i > 0) buffer.write('\u200B');
+      buffer.write(value.substring(i, end));
+    }
+    return buffer.toString();
+  }
+}
+
 class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.label,
-    required this.value,
-    this.monospace = false,
-  });
+  const _InfoRow({required this.label, required this.value});
 
   final String label;
   final String value;
-  final bool monospace;
 
   @override
   Widget build(BuildContext context) {
@@ -567,12 +601,7 @@ class _InfoRow extends StatelessWidget {
           Expanded(
             child: Text(
               value,
-              style: monospace
-                  ? theme.textTheme.bodySmall?.copyWith(
-                      fontFamily: 'monospace',
-                      letterSpacing: -0.2,
-                    )
-                  : theme.textTheme.bodyMedium,
+              style: theme.textTheme.bodyMedium,
               overflow: TextOverflow.ellipsis,
             ),
           ),
