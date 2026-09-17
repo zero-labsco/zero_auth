@@ -40,6 +40,25 @@ cd example && flutter analyze && flutter test
 cd ..\server && dart analyze
 ```
 
+## Docs site / 文档站
+
+The Pages site is served from the **pre-built** `docs/` folder; it is regenerated
+from `website/out/` by a git pre-commit hook. The hook must be installed once per
+clone, otherwise edits under `website/` never reach GitHub Pages.
+
+文档站由**预先构建**的 `docs/` 目录提供，它由 git pre-commit hook 从 `website/out/`
+重新生成。每个克隆必须安装一次该 hook，否则你在 `website/` 下的改动永远不会上线。
+
+```powershell
+npm --prefix website run setup-hook
+```
+
+If you changed `website/**` but `git status` shows no `docs/` changes, the hook is
+missing — reinstall it and run `node website/scripts/sync-docs.mjs --force` once.
+
+若你改了 `website/**` 而 `git status` 中没有 `docs/` 变化，说明 hook 未安装——重装它，
+再手动执行一次 `node website/scripts/sync-docs.mjs --force`。
+
 ## Branching & pull requests
 
 - Branch from `main` with a typed prefix: `feat/`, `fix/`, `docs/`, `ci/`,
