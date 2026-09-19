@@ -20,9 +20,16 @@ Wherever your `TokenStore` puts them. The core ships `InMemoryTokenStore` (lost 
 
 ### What happens on a failed refresh? / 刷新失败会怎样？
 
-The session is cleared and `AuthState` becomes `AuthError`. Route the user back to login.
+The failure is always reported as `AuthError` and rethrown. What happens *next*
+depends on `refreshFailurePolicy`: an unrecoverable failure (`SessionExpiredException`,
+`InvalidCredentialsException`) clears the store and lands on `Unauthenticated`,
+while a transient one (network, 5xx) keeps the previous session so a retry can
+succeed. See [Configuration](Configuration#refresh-failure-policy).
 
-会话被清空，`AuthState` 变为 `AuthError`，应将用户引导回登录。
+失败总会以 `AuthError` 上报并重新抛出。*之后*如何取决于 `refreshFailurePolicy`：
+不可恢复的失败（`SessionExpiredException`、`InvalidCredentialsException`）会清空存储
+并落到 `Unauthenticated`；瞬时故障（网络、5xx）保留上一个会话以便重试成功。参见
+[配置](Configuration#refresh-failure-policy)。
 
 ### Is token refresh concurrent-safe? / 令牌刷新是否并发安全？
 

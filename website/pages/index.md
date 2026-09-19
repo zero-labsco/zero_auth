@@ -9,7 +9,7 @@ A backend-agnostic auth state machine & session lifecycle core for Dart/Flutter.
 | Feature | Description |
 |---------|-------------|
 | **Backend-agnostic** | Implement only `login`/`register`/`logout`/`refresh`; REST, gRPC, Firebase or a private RPC are equally valid targets / 只需实现四个方法，REST、gRPC、Firebase 或私有 RPC 均可接入 |
-| **Auth State Machine** | Sealed `Unauthenticated → Authenticating → Authenticated → AuthError` lifecycle on a `Stream<AuthState>` that replays the latest value to new listeners / 密封状态机 + 重放最近值的状态流，首帧即可渲染正确界面 |
+| **Auth State Machine** | Sealed `Unauthenticated` / `Authenticating` / `Authenticated` / `Refreshing` / `LoggingOut` / `AuthError` on a `Stream<AuthState>` that replays the latest value to new listeners; use `isAuthenticated` / `isBusy` / 密封六态状态机 + 重放最近值的状态流，可用 `isAuthenticated` / `isBusy` |
 | **Silent Restore** | `restore()` rehydrates the persisted session at startup / 启动时静默恢复持久化会话 |
 | **Single-flight Refresh** | Concurrent `refresh()` calls share one in-flight request instead of stampeding the backend / 并发刷新共享同一次请求，避免冲击后端 |
 | **Pluggable Persistence** | The only persistence surface is `TokenStore.save/load/clear`; `InMemoryTokenStore` ships in-core / 唯一的持久化接口，内核自带内存实现 |
@@ -18,7 +18,11 @@ A backend-agnostic auth state machine & session lifecycle core for Dart/Flutter.
 | **Network Integration** | `AuthManager` itself is an `AuthTokenSource`, so a Dio interceptor can attach `Authorization: Bearer` without depending on the manager / 管理器即令牌源，Dio 拦截器零依赖附加令牌 |
 | **Session Serialization** | `AuthSession.toJson` / `fromJson` make persistence a one-liner; a file-based reference store ships for server/CLI / `AuthSession.toJson` / `fromJson` 让持久化一行搞定，并附带面向服务端 / CLI 的文件参考存储 |
 | **Proactive Auto-refresh** | Pass `autoRefreshAhead` to renew tokens before expiry (single-flight) / 传入 `autoRefreshAhead` 在过期前自动续期（单飞） |
-| **Runnable Example** | A full Flutter demo app (Android/iOS/Web/Windows) plus a zero-dependency `dart:io` demo backend / 完整 Flutter 示例与一个零依赖演示后端 |
+| **Never an Expired Token** | `validAccessToken()` renews first when the token has expired, so interceptors never send a dead bearer token / 令牌过期时先续期，拦截器不会发出失效令牌 |
+| **Bring Your Own Login** | `loginWith` adopts a session from any flow you drive: third-party OAuth, magic links, passkeys / `loginWith` 可接纳第三方 OAuth、魔法链接、Passkey 等自定义流程 |
+| **Typed Auth Exceptions** | `InvalidCredentialsException`, `SessionExpiredException` and friends, mapped from your strategy's `code` / `InvalidCredentialsException`、`SessionExpiredException` 等，由策略的 `code` 映射而来 |
+| **Configurable Failure Policy** | `refreshFailurePolicy` decides whether a failed refresh signs the user out / `refreshFailurePolicy` 决定刷新失败是否登出 |
+| **Runnable Example** | A full Flutter demo app (Android/iOS/Web/Windows) plus a layered `dart:io` demo backend that issues real JWTs / 完整 Flutter 示例与一个签发真实 JWT 的分层演示后端 |
 | **Cross-platform** | Pure Dart — runs anywhere Dart or Flutter runs / 纯 Dart，跨平台 |
 
 ## 📚 Table of Contents / 目录
@@ -34,6 +38,8 @@ A backend-agnostic auth state machine & session lifecycle core for Dart/Flutter.
 | [Network Integration](Network-Integration) | Dio interceptor & token source / 网络集成与拦截器 |
 | [Errors](Errors) | Exception & `Result` model / 异常与结果模型 |
 | [Configuration](Configuration) | Configuration options / 配置说明 |
+| [Session Persistence](Persistence) | Restoring and renewing a saved session / 会话持久化与恢复 |
+| [Third-Party Login](Third-Party-Login) | OAuth / magic links via `loginWith` / 用 `loginWith` 接入第三方登录 |
 | [FAQ](FAQ) | Frequently asked questions / 常见问题 |
 
 ## 🔗 Links / 链接
