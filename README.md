@@ -27,9 +27,13 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
   - [Wire your backend (`AuthStrategy`)](#wire-your-backend-authstrategy)
   - [Persist the session (`TokenStore`)](#persist-the-session-tokenstore)
   - [Attach tokens to the network (`AuthTokenSource`)](#attach-tokens-to-the-network-authtokensource)
+  - [Bring your own login flow (`loginWith`)](#bring-your-own-login-flow-loginwith)
+  - [Never send an expired token](#never-send-an-expired-token)
+  - [Handle failures with typed errors](#handle-failures-with-typed-errors)
   - [Example app & demo backend](#example-app--demo-backend)
 - [API Reference](#api-reference)
 - [Architecture](#architecture)
+- [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -127,26 +131,107 @@ final auth = AuthManager(
 dio.interceptors.add(AuthInterceptor(auth)); // adds `Authorization: Bearer <token>`
 ```
 
+### Bring your own login flow (`loginWith`)
+
+Third-party OAuth, magic links and passkeys are flows *you* drive; `zero_auth`
+only owns what comes after. The provider handshake stays outside this package
+(it needs platform code), your backend verifies the provider credential and mints
+*your* tokens, and `loginWith` hands that session to the manager:
+
+```dart
+Future<AuthSession> signInWithGoogle() async {
+  final code = await myOAuthClient.authenticate();        // outside zero_auth
+  final res = await myApi.post('/auth/google', {'code': code});
+  return AuthSession(
+    accessToken: res['accessToken'] as String,
+    refreshToken: RefreshToken(res['refreshToken'] as String),
+    expiresAt: DateTime.now().add(Duration(seconds: res['expiresIn'] as int)),
+    userId: res['userId'] as String,
+  );
+}
+
+// Emits Authenticating -> Authenticated, or AuthError + rethrow.
+await auth.loginWith((strategy) => signInWithGoogle());
+```
+
+The full pattern — including why the login *method* is invisible to the state
+machine — lives in the
+[Third-Party Login cookbook](https://zero-labsco.github.io/zero_auth/Third-Party-Login).
+
+### Never send an expired token
+
+`accessToken` returns whatever the current session holds, which may already be
+expired. For network layers use `validAccessToken()`: it renews first (reusing the
+single-flight refresh) and returns `null` only when there is nothing to send.
+
+```dart
+final token = await auth.validAccessToken();
+if (token != null) headers['Authorization'] = 'Bearer $token';
+```
+
+Or let the manager renew proactively before expiry:
+
+```dart
+final auth = AuthManager(
+  strategy: strategy,
+  autoRefreshAhead: const Duration(minutes: 5),
+);
+```
+
+### Handle failures with typed errors
+
+Failures never leak raw `Exception`s. Your strategy opts into precise types by
+throwing an `AuthException` with a `code`:
+
+| `code` | Maps to |
+|--------|---------|
+| `invalid_credentials` | `InvalidCredentialsException` |
+| `invalid_grant` / `invalid_refresh_token` / `token_expired` / `session_expired` | `SessionExpiredException` |
+| `no_active_session` | `NoActiveSessionException` |
+| `refresh_token_missing` | `RefreshTokenMissingException` |
+| anything else | kept as-is, or `UnexpectedAuthException` |
+
+```dart
+try {
+  await auth.login(credentials);
+} on SessionExpiredException {
+  // the grant is dead: only a fresh login recovers
+} on InvalidCredentialsException {
+  // show a form error
+} on AuthException catch (e) {
+  // every other auth failure, still carrying a stable e.code
+}
+```
+
+A failed refresh is also reported on the state stream as `AuthError`. Whether it
+ends the session is up to `refreshFailurePolicy`: unrecoverable failures sign the
+user out, transient ones keep the session so a retry can succeed.
+
 ### Example app & demo backend
 
 The repo ships two runnable pieces, so you can exercise the whole lifecycle end to end:
 
 - `example/` — a Flutter app driving `AuthManager` (login / refresh / logout / call a protected endpoint).
-- `server/` — a zero-dependency `dart:io` backend for the example (no `pub get` required).
+- `server/` — a layered `dart:io` backend that issues real HMAC-SHA256 JWTs with refresh-token rotation, family revocation and replay detection, and logs every request. Run `dart pub get` once before starting it.
 
 **1. Start the demo backend**
 
 ```bash
 cd server
+dart pub get
 dart run bin/server.dart        # listens on http://localhost:8080
 ```
 
 | Method & path | Request | Response |
 |---------------|---------|----------|
-| `POST /login` | `{ "username": "a", "password": "b" }` | `200` tokens (`expiresIn: 3600`) · `401 invalid_credentials` |
-| `POST /refresh` | `{ "refreshToken": "demo-refresh-token" }` | `200` new tokens · `401 invalid_refresh_token` |
-| `POST /logout` | – | `200 { "ok": true }` |
-| `GET /me` | header `Authorization: Bearer demo-access-token` | `200 { "userId", "displayName" }` · `401 unauthorized` |
+| `POST /login` | `{ "username": "user", "password": "user" }` | `200` real JWT pair + `expiresIn` · `401 invalid_credentials` |
+| `POST /refresh` | `{ "refreshToken": "<rotating token>" }` | `200` rotated pair · `401 invalid_grant` (expired, revoked or replayed) |
+| `POST /logout` | `{ "refreshToken": "…" }` | `200 { "ok": true }` — revokes the token family |
+| `GET /me` | header `Authorization: Bearer <access token>` | `200 { "userId", "displayName" }` · `401 invalid_token` |
+| `GET /health` | – | `200 { "status": "ok", … }` |
+| `POST /debug/expire-access` | – | Rejects every access token issued so far |
+| `POST /debug/access-ttl` | `{ "seconds": 10 }` | Changes the lifetime granted to new tokens |
+| `POST /debug/reset` | – | Restores the defaults and clears simulated expiry |
 
 Sign in with **`user` / `user`** — anything else returns `401`, which is the easiest way to watch the `AuthError` path. Tokens are real HMAC-SHA256 JWTs with refresh-token rotation and replay detection, and every request is logged. CORS is enabled, so a Flutter Web build can call it directly.
 
@@ -157,40 +242,128 @@ cd example
 flutter run
 ```
 
-- The app talks to the **real backend by default**; flip the AppBar switch to fall back to the offline fake (`_DemoStrategy`) when you don't want to run the server.
+- The app talks to the **real backend by default**; turn **Live backend** off in its card to fall back to the offline double (`_DemoStrategy`).
 - Log in with `user` / `user`, then press **Call /me** to watch the interceptor attach `Authorization: Bearer …` and the backend echo the user back.
+- While signed in, the **Debug** card offers *Expire now* (then `Call /me` shows the `401`) and *Expire in 10s* (shortens the token so the next `Call /me` exercises transparent renewal).
 - Stop the backend and log in again to see the mapped `network_unreachable` error instead of a raw `DioException`.
 
 > On an Android emulator use `http://10.0.2.2:8080` instead of `localhost` (`_baseUrl` in `example/lib/main.dart`).
 
 ## API Reference
 
+> **Upgrading from 0.2.x** — `AuthState` gained two subtypes: `Refreshing` and
+> `LoggingOut`. Exhaustive `switch` statements must handle them. Prefer
+> `state.isAuthenticated` and `state.isBusy`, which stay correct as states evolve.
+
+### `AuthManager`
+
+| Member | Signature | Notes |
+|--------|-----------|-------|
+| constructor | `AuthManager({required strategy, TokenStore? tokenStore, Duration? autoRefreshAhead, RefreshFailurePolicy? refreshFailurePolicy, DateTime Function()? clock})` | `tokenStore` defaults to `InMemoryTokenStore`; `autoRefreshAhead` enables proactive renewal; `clock` overrides the time source |
+| `current` | `AuthState get current` | Latest state, always readable |
+| `state` | `Stream<AuthState> get state` | Broadcast, replays the latest value to new listeners |
+| `currentSession` | `AuthSession? get currentSession` | Available while `Authenticated` **and** `Refreshing` |
+| `accessToken` | `String? get accessToken` | May already be expired — use `validAccessToken` for requests |
+| `restore()` | `Future<void> restore({bool refreshIfExpired = true})` | Heals an expired persisted session, or drops it when it cannot renew |
+| `login()` | `Future<Authenticated> login(Credentials)` | Emits `Authenticating → Authenticated`; on failure emits `AuthError` **and rethrows** |
+| `register()` | `Future<Authenticated> register(RegistrationInput)` | Same semantics as `login` |
+| `loginWith()` | `Future<Authenticated> loginWith(Future<AuthSession> Function(AuthStrategy))` | Adopts a session from any flow you drive yourself |
+| `refresh()` | `Future<AuthSession>` | Emits `Refreshing`; single-flight; applies `refreshFailurePolicy` on failure |
+| `validAccessToken()` | `Future<String?>` | Never returns an expired token; renews first when needed |
+| `logout()` | `Future<void>` | Emits `LoggingOut`, best-effort backend call, clears the store, lands on `Unauthenticated` |
+| `dispose()` | `Future<void>` | Closes the stream and cancels proactive refresh |
+
+### `AuthState` (sealed)
+
+| Subtype | Payload | Meaning |
+|---------|---------|---------|
+| `Unauthenticated` | – | No session |
+| `Authenticating` | – | `login` / `register` / `loginWith` in flight |
+| `Authenticated` | `AuthSession session` | Session active |
+| `Refreshing` | `AuthSession session` | Renewal in flight; the previous session stays usable |
+| `LoggingOut` | `AuthSession session` | Logout in flight; that session is being discarded |
+| `AuthError` | `AppException error` | Last operation failed |
+
+Helpers: `isAuthenticated` is `true` for `Authenticated` **and** `Refreshing`;
+`isBusy` covers `Authenticating`, `Refreshing` and `LoggingOut`.
+
+### `AuthSession`
+
+| Member | Notes |
+|--------|-------|
+| `accessToken`, `refreshToken`, `expiresAt`, `userId`, `displayName`, `claims` | Tokens, expiry, identity and raw claims |
+| `isExpired` | Expired per the system clock |
+| `isExpiredAt(DateTime)` | Expired per your own clock |
+| `toJson()` / `AuthSession.fromJson()` | Persistence; `null` fields are omitted |
+
+### Boundaries & value objects
+
 | Type | Role |
 |------|------|
-| `AuthManager` | Orchestrates the state machine and session lifecycle; the main entry point. |
-| `AuthState` | Sealed state: `Unauthenticated` / `Authenticating` / `Authenticated` / `AuthError`. |
-| `AuthSession` | The active session: access/refresh tokens, expiry, display name, raw claims. |
-| `AuthStrategy` | Backend boundary you implement (login / register / logout / refresh). |
-| `TokenStore` | Persistence boundary for the active session (`save` / `load` / `clear`). |
-| `AuthTokenSource` | Read-only access-token source for network layers. |
-| `AppException` | The single public error type (from this package's error kernel). |
-| `Result<T>` | Explicit `Ok` / `Err` success-failure wrapper. |
+| `AuthStrategy` | Backend boundary you implement: `login` / `register` / `logout` / `refresh` |
+| `TokenStore` | Persistence boundary: `save` / `load` / `clear`; `InMemoryTokenStore` ships in-core |
+| `AuthTokenSource` | Read-only token source for network layers; `AuthManager` implements it |
+| `Credentials`, `RegistrationInput`, `SessionHandle`, `RefreshToken` | Value objects passed across those boundaries |
+
+### Errors
+
+| Type | Role |
+|------|------|
+| `AppException` | The single public error type: `message` / `code` / `cause` |
+| `AuthException` | Base auth failure, carrying an `AuthFail` |
+| `InvalidCredentialsException` | Credentials rejected; retrying them fails again |
+| `SessionExpiredException` | Grant expired or revoked; only a fresh login recovers |
+| `NoActiveSessionException` | An operation needed an active session and there was none |
+| `RefreshTokenMissingException` | Refresh requested for a session without a refresh token |
+| `UnexpectedAuthException` | Fallback for anything unclassifiable |
+| `mapAuthFailure(Object)` | Maps a caught error onto the richest subclass, by `code` |
+| `defaultRefreshFailurePolicy` | Signs out on unrecoverable failures, keeps the session on transient ones |
+| `Result<T>` | Optional explicit `Ok` / `Err` wrapper |
 
 ## Architecture
 
 ```
-        login/register            success                refresh fails
-   ┌──────────────┐ ┌───────────────┐ ┌──────────────────┐
-   │ Unauthenticated │──▶│ Authenticating │──▶│  Authenticated   │
-   └──────────────┘ └───────────────┘ └──────────────────┘
-          ▲                              │   │   ▲
-          │          AuthError ◀─────────┘   │   │ token near expiry
-          │              │                   │   │ (single-flight refresh)
-          │              └───────────────────┘   ▼
-          └──────────────────────────────── logout / refresh failure ──┘
+   login/register ──► Authenticating ──► Authenticated
+                                            │
+                              refresh ──────┤
+                                            ▼
+                                        Refreshing
+                                       │         │
+                            renewed ───┘         └─── failed
+                                │                      │
+                                ▼                      ▼
+                    Authenticated (new token)      AuthError
+                                                   │        │
+                                    unrecoverable ─┘        └── transient
+                                          │                       │
+                                          ▼                       ▼
+                                   Unauthenticated          Authenticated
+                                                           (previous session)
+
+   logout ──► LoggingOut ──► Unauthenticated
+   restore() ──► Authenticated, or Unauthenticated when nothing persists
 ```
 
 The manager holds no UI, backend, or native code. Wire your backend via `AuthStrategy` and your persistence via `TokenStore`; network layers depend only on `AuthTokenSource`.
+
+Consecutive duplicate states are suppressed, so listeners only rebuild on a real
+change.
+
+## Documentation
+
+This README is the front door; these go deeper:
+
+- [Usage & API Guide](USAGE.md) — the complete reference: every boundary, the
+  error model, lifecycle best practices, pitfalls and testing.
+- [Documentation site](https://zero-labsco.github.io/zero_auth/) — topic pages and
+  cookbooks: [Auth State Machine](https://zero-labsco.github.io/zero_auth/Auth-State-Machine),
+  [Backend Strategy](https://zero-labsco.github.io/zero_auth/Backend-Strategy),
+  [Token Store](https://zero-labsco.github.io/zero_auth/Token-Store),
+  [Network Integration](https://zero-labsco.github.io/zero_auth/Network-Integration),
+  [Errors](https://zero-labsco.github.io/zero_auth/Errors),
+  [Configuration](https://zero-labsco.github.io/zero_auth/Configuration),
+  [Session Persistence](https://zero-labsco.github.io/zero_auth/Persistence) and
+  [Third-Party Login](https://zero-labsco.github.io/zero_auth/Third-Party-Login).
 
 ## Contributing
 

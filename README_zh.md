@@ -27,9 +27,13 @@
   - [接入后端（`AuthStrategy`）](#接入后端-authstrategy)
   - [持久化会话（`TokenStore`）](#持久化会话-tokenstore)
   - [为网络附加令牌（`AuthTokenSource`）](#为网络附加令牌-authtokensource)
+  - [接入自定义登录流程（`loginWith`）](#接入自定义登录流程-loginwith)
+  - [绝不发送过期令牌](#绝不发送过期令牌)
+  - [用类型化异常处理失败](#用类型化异常处理失败)
   - [示例 App 与演示后端](#示例-app-与演示后端)
 - [API 参考](#api-参考)
 - [架构](#架构)
+- [文档](#文档)
 - [贡献](#贡献)
 - [许可证](#许可证)
 
@@ -127,26 +131,98 @@ final auth = AuthManager(
 dio.interceptors.add(AuthInterceptor(auth)); // 自动添加 `Authorization: Bearer <token>`
 ```
 
+### 接入自定义登录流程（`loginWith`）
+
+第三方 OAuth、魔法链接、Passkey 都是**由你驱动**的流程，`zero_auth` 只负责之后的部分：提供方握手在本包之外（需要平台代码），你的后端校验提供方凭据并签发**你自己的**令牌，再由 `loginWith` 把会话交给管理器：
+
+```dart
+Future<AuthSession> signInWithGoogle() async {
+  final code = await myOAuthClient.authenticate();        // 在 zero_auth 之外
+  final res = await myApi.post('/auth/google', {'code': code});
+  return AuthSession(
+    accessToken: res['accessToken'] as String,
+    refreshToken: RefreshToken(res['refreshToken'] as String),
+    expiresAt: DateTime.now().add(Duration(seconds: res['expiresIn'] as int)),
+    userId: res['userId'] as String,
+  );
+}
+
+// 发出 Authenticating -> Authenticated；失败则发 AuthError 并重新抛出。
+await auth.loginWith((strategy) => signInWithGoogle());
+```
+
+完整模式（含「登录方式对状态机透明」的原因）见
+[第三方登录 cookbook](https://zero-labsco.github.io/zero_auth/Third-Party-Login)。
+
+### 绝不发送过期令牌
+
+`accessToken` 返回的是当前会话里的值，**可能已经过期**。网络层请用 `validAccessToken()`：它会在必要时先续期（复用单飞刷新），只有在真的无令牌可发时才返回 `null`。
+
+```dart
+final token = await auth.validAccessToken();
+if (token != null) headers['Authorization'] = 'Bearer $token';
+```
+
+也可以让管理器在过期前主动续期：
+
+```dart
+final auth = AuthManager(
+  strategy: strategy,
+  autoRefreshAhead: const Duration(minutes: 5),
+);
+```
+
+### 用类型化异常处理失败
+
+失败绝不会以裸 `Exception` 泄漏。你的策略只要抛出带 `code` 的 `AuthException`，就能映射为精确类型：
+
+| `code` | 映射结果 |
+|--------|----------|
+| `invalid_credentials` | `InvalidCredentialsException` |
+| `invalid_grant` / `invalid_refresh_token` / `token_expired` / `session_expired` | `SessionExpiredException` |
+| `no_active_session` | `NoActiveSessionException` |
+| `refresh_token_missing` | `RefreshTokenMissingException` |
+| 其它 | 原样保留，或 `UnexpectedAuthException` |
+
+```dart
+try {
+  await auth.login(credentials);
+} on SessionExpiredException {
+  // 授权已失效：只能重新登录
+} on InvalidCredentialsException {
+  // 显示表单错误
+} on AuthException catch (e) {
+  // 其它认证失败，仍带有稳定的 e.code
+}
+```
+
+刷新失败同时也会以 `AuthError` 出现在状态流上。是否终止会话由 `refreshFailurePolicy` 决定：不可恢复的失败让用户登出，瞬时故障保留会话以便重试成功。
+
 ### 示例 App 与演示后端
 
 仓库内置两个可直接运行的部分，方便端到端验证完整生命周期：
 
 - `example/` —— 驱动 `AuthManager` 的 Flutter 示例 App（登录 / 刷新 / 登出 / 调用受保护接口）。
-- `server/` —— 供示例使用的零依赖 `dart:io` 后端（无需 `pub get`）。
+- `server/` —— 分层的 `dart:io` 后端，签发真实的 HMAC-SHA256 JWT，带刷新令牌轮换、家族吊销与重放检测，并记录每条请求日志。启动前需要跑一次 `dart pub get`。
 
 **1. 启动演示后端**
 
 ```bash
 cd server
+dart pub get
 dart run bin/server.dart        # 监听 http://localhost:8080
 ```
 
 | 方法与路径 | 请求 | 响应 |
 |------------|------|------|
-| `POST /login` | `{ "username": "a", "password": "b" }` | `200` 令牌（`expiresIn: 3600`）· `401 invalid_credentials` |
-| `POST /refresh` | `{ "refreshToken": "demo-refresh-token" }` | `200` 新令牌 · `401 invalid_refresh_token` |
-| `POST /logout` | – | `200 { "ok": true }` |
-| `GET /me` | 请求头 `Authorization: Bearer demo-access-token` | `200 { "userId", "displayName" }` · `401 unauthorized` |
+| `POST /login` | `{ "username": "user", "password": "user" }` | `200` 真实 JWT 令牌对 + `expiresIn` · `401 invalid_credentials` |
+| `POST /refresh` | `{ "refreshToken": "<轮换中的令牌>" }` | `200` 轮换后的令牌对 · `401 invalid_grant`（过期 / 吊销 / 重放） |
+| `POST /logout` | `{ "refreshToken": "…" }` | `200 { "ok": true }`，并吊销该令牌家族 |
+| `GET /me` | 请求头 `Authorization: Bearer <访问令牌>` | `200 { "userId", "displayName" }` · `401 invalid_token` |
+| `GET /health` | – | `200 { "status": "ok", … }` |
+| `POST /debug/expire-access` | – | 让目前已签发的所有访问令牌失效 |
+| `POST /debug/access-ttl` | `{ "seconds": 10 }` | 修改新签发令牌的有效期 |
+| `POST /debug/reset` | – | 恢复默认配置并清除模拟过期 |
 
 使用 **`user` / `user`** 登录 —— 其它值都会返回 `401`，这是观察 `AuthError` 分支最简单的方式。后端签发的是真实的 HMAC-SHA256 JWT，带刷新令牌轮换与重放检测，并记录每条请求日志。已开启 CORS，Flutter Web 构建可直接调用。
 
@@ -157,40 +233,118 @@ cd example
 flutter run
 ```
 
-- App **默认连接真实后端**；拨动 AppBar 开关可回退到离线假后端（`_DemoStrategy`），无需起服务。
+- App **默认连接真实后端**；在卡片里关掉 **Live backend** 即可回退到离线假后端（`_DemoStrategy`）。
 - 用 `user` / `user` 登录，再点击 **Call /me**，即可看到拦截器附加 `Authorization: Bearer …`，后端回显用户信息。
+- 登录后 **Debug** 卡片提供 *Expire now*（随后 `Call /me` 会出现 `401`）与 *Expire in 10s*（缩短令牌有效期，下一次 `Call /me` 就会走透明续期）。
 - 关掉后端再登录，会看到映射后的 `network_unreachable` 错误，而不是裸的 `DioException`。
 
 > Android 模拟器请使用 `http://10.0.2.2:8080` 代替 `localhost`（见 `example/lib/main.dart` 的 `_baseUrl`）。
 
 ## API 参考
 
+> **从 0.2.x 升级** —— `AuthState` 新增了两个子类：`Refreshing` 与 `LoggingOut`，
+> 因此穷举 `switch` 必须处理它们。建议改用 `state.isAuthenticated` 与
+> `state.isBusy`，状态继续演进也不会失效。
+
+### `AuthManager`
+
+| 成员 | 签名 | 说明 |
+|------|------|------|
+| 构造函数 | `AuthManager({required strategy, TokenStore? tokenStore, Duration? autoRefreshAhead, RefreshFailurePolicy? refreshFailurePolicy, DateTime Function()? clock})` | `tokenStore` 默认为 `InMemoryTokenStore`；`autoRefreshAhead` 开启主动续期；`clock` 覆盖时间源 |
+| `current` | `AuthState get current` | 最新状态，始终可读 |
+| `state` | `Stream<AuthState> get state` | 广播流，对新订阅者重放最新值 |
+| `currentSession` | `AuthSession? get currentSession` | 在 `Authenticated` **与** `Refreshing` 期间可用 |
+| `accessToken` | `String? get accessToken` | 可能已过期，请求请用 `validAccessToken` |
+| `restore()` | `Future<void> restore({bool refreshIfExpired = true})` | 修复已过期的持久化会话，无法续期则丢弃 |
+| `login()` | `Future<Authenticated> login(Credentials)` | 发出 `Authenticating → Authenticated`；失败发 `AuthError` **并重新抛出** |
+| `register()` | `Future<Authenticated> register(RegistrationInput)` | 语义同 `login` |
+| `loginWith()` | `Future<Authenticated> loginWith(Future<AuthSession> Function(AuthStrategy))` | 接纳任意自定义流程产生的会话 |
+| `refresh()` | `Future<AuthSession>` | 发出 `Refreshing`；单飞；失败时按 `refreshFailurePolicy` 处理 |
+| `validAccessToken()` | `Future<String?>` | 绝不返回过期令牌，必要时先续期 |
+| `logout()` | `Future<void>` | 发出 `LoggingOut`、尽力调用后端、清空存储，落到 `Unauthenticated` |
+| `dispose()` | `Future<void>` | 关闭状态流并取消主动刷新 |
+
+### `AuthState`（密封）
+
+| 子类 | 负载 | 含义 |
+|------|------|------|
+| `Unauthenticated` | – | 无会话 |
+| `Authenticating` | – | `login` / `register` / `loginWith` 进行中 |
+| `Authenticated` | `AuthSession session` | 会话有效 |
+| `Refreshing` | `AuthSession session` | 续期进行中，旧会话仍可用 |
+| `LoggingOut` | `AuthSession session` | 登出进行中，该会话即将被丢弃 |
+| `AuthError` | `AppException error` | 上一次操作失败 |
+
+辅助属性：`isAuthenticated` 在 `Authenticated` **与** `Refreshing` 下为 `true`；
+`isBusy` 覆盖 `Authenticating`、`Refreshing`、`LoggingOut`。
+
+### `AuthSession`
+
+| 成员 | 说明 |
+|------|------|
+| `accessToken`、`refreshToken`、`expiresAt`、`userId`、`displayName`、`claims` | 令牌、过期时间、身份与原始 claims |
+| `isExpired` | 按系统时钟判断是否过期 |
+| `isExpiredAt(DateTime)` | 按你自己的时钟判断 |
+| `toJson()` / `AuthSession.fromJson()` | 持久化用，`null` 字段会被省略 |
+
+### 边界与值对象
+
 | 类型 | 职责 |
 |------|------|
-| `AuthManager` | 编排状态机与会话生命周期，主入口。 |
-| `AuthState` | 密封状态：`Unauthenticated` / `Authenticating` / `Authenticated` / `AuthError`。 |
-| `AuthSession` | 当前会话：访问 / 刷新令牌、过期时间、显示名、原始 claims。 |
-| `AuthStrategy` | 由你实现的后端边界（login / register / logout / refresh）。 |
-| `TokenStore` | 当前会话的持久化边界（`save` / `load` / `clear`）。 |
-| `AuthTokenSource` | 供网络层使用的只读访问令牌来源。 |
-| `AppException` | 唯一的公共错误类型（来自本包的错误内核）。 |
-| `Result<T>` | 显式 `Ok` / `Err` 成功-失败包装。 |
+| `AuthStrategy` | 由你实现的后端边界：`login` / `register` / `logout` / `refresh` |
+| `TokenStore` | 持久化边界：`save` / `load` / `clear`；内核自带 `InMemoryTokenStore` |
+| `AuthTokenSource` | 供网络层使用的只读令牌来源，`AuthManager` 即实现它 |
+| `Credentials`、`RegistrationInput`、`SessionHandle`、`RefreshToken` | 跨边界传递的值对象 |
+
+### 错误
+
+| 类型 | 职责 |
+|------|------|
+| `AppException` | 唯一的公共错误类型：`message` / `code` / `cause` |
+| `AuthException` | 认证失败基类，持有 `AuthFail` |
+| `InvalidCredentialsException` | 凭据被拒，重试同样失败 |
+| `SessionExpiredException` | 授权已过期或被吊销，只能重新登录 |
+| `NoActiveSessionException` | 需要活动会话的操作却没有会话 |
+| `RefreshTokenMissingException` | 会话无刷新令牌却请求了刷新 |
+| `UnexpectedAuthException` | 无法归类时的兜底类型 |
+| `mapAuthFailure(Object)` | 按 `code` 把捕获的错误映射为最具体的子类 |
+| `defaultRefreshFailurePolicy` | 不可恢复的失败登出，瞬时故障保留会话 |
+| `Result<T>` | 可选的显式 `Ok` / `Err` 包装 |
 
 ## 架构
 
 ```
-        login/register            success                refresh fails
-   ┌──────────────┐ ┌───────────────┐ ┌──────────────────┐
-   │ Unauthenticated │──▶│ Authenticating │──▶│  Authenticated   │
-   └──────────────┘ └───────────────┘ └──────────────────┘
-          ▲                              │   │   ▲
-          │          AuthError ◀─────────┘   │   │ token near expiry
-          │              │                   │   │ (single-flight refresh)
-          │              └───────────────────┘   ▼
-          └──────────────────────────────── logout / refresh failure ──┘
+   登录/注册 ──► Authenticating ──► Authenticated
+                                        │
+                          刷新 ─────────┤
+                                        ▼
+                                    Refreshing
+                                   │         │
+                          续期成功 ─┘         └─── 失败
+                              │                    │
+                              ▼                    ▼
+                  Authenticated（新令牌）       AuthError
+                                                 │      │
+                                  不可恢复 ──────┘      └── 瞬时故障
+                                        │                     │
+                                        ▼                     ▼
+                                 Unauthenticated         Authenticated
+                                                        （保留上一个会话）
+
+   登出 ──► LoggingOut ──► Unauthenticated
+   restore() ──► Authenticated；无持久化内容或无法续期时为 Unauthenticated
 ```
 
 管理器不含 UI、后端或原生代码。通过 `AuthStrategy` 接入后端，通过 `TokenStore` 接入持久化；网络层只依赖 `AuthTokenSource`。
+
+连续重复的状态会被抑制，因此监听器只会在真正变化时重建。
+
+## 文档
+
+本 README 是入口，更深入的内容在这两处：
+
+- [使用与 API 指南](USAGE.md) —— 完整参考：全部边界、错误模型、生命周期最佳实践、常见坑与测试。
+- [文档站](https://zero-labsco.github.io/zero_auth/) —— 专题页与 cookbook：[认证状态机](https://zero-labsco.github.io/zero_auth/Auth-State-Machine)、[后端策略](https://zero-labsco.github.io/zero_auth/Backend-Strategy)、[令牌存储](https://zero-labsco.github.io/zero_auth/Token-Store)、[网络集成](https://zero-labsco.github.io/zero_auth/Network-Integration)、[错误](https://zero-labsco.github.io/zero_auth/Errors)、[配置](https://zero-labsco.github.io/zero_auth/Configuration)、[会话持久化](https://zero-labsco.github.io/zero_auth/Persistence) 与 [第三方登录](https://zero-labsco.github.io/zero_auth/Third-Party-Login)。
 
 ## 贡献
 
