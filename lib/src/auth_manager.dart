@@ -85,6 +85,7 @@ final class AuthManager implements AuthTokenSource {
     TokenStore? tokenStore,
     Duration? autoRefreshAhead,
     Duration? autoRefreshRetryDelay,
+    int? autoRefreshMaxRetries,
     RefreshFailurePolicy? refreshFailurePolicy,
     DateTime Function()? clock,
     this.onStateChanged,
@@ -92,15 +93,25 @@ final class AuthManager implements AuthTokenSource {
         _autoRefreshAhead = autoRefreshAhead,
         _autoRefreshRetryDelay =
             autoRefreshRetryDelay ?? const Duration(seconds: 30),
+        _autoRefreshMaxRetries = autoRefreshMaxRetries ?? 3,
         refreshFailurePolicy =
             refreshFailurePolicy ?? defaultRefreshFailurePolicy,
         clock = clock ?? _systemClock;
 
   final Duration? _autoRefreshAhead;
 
-  /// Delay before re-arming a proactive refresh that failed.
-  /// 主动续期失败后重新排程的等待时长。
+  /// Delay before re-arming a proactive refresh that failed. Each further
+  /// attempt waits one more multiple of this, giving a linear backoff.
+  /// 主动续期失败后重新排程的等待时长；每多失败一次就多等一个该时长（线性退避）。
   final Duration _autoRefreshRetryDelay;
+
+  /// How many failed proactive renewals to retry before giving up.
+  /// 主动续期失败多少次后放弃重试。
+  final int _autoRefreshMaxRetries;
+
+  /// Consecutive proactive renewal failures; reset once one succeeds.
+  /// 连续主动续期失败次数；成功后归零。
+  int _proactiveFailures = 0;
 
   /// Optional observer of every state change.
   /// 可选的状态变化观察者。
@@ -219,7 +230,13 @@ final class AuthManager implements AuthTokenSource {
       }
       return;
     }
-    _activate(session);
+
+    // Restoring verbatim must honour "do not renew": an expired session is
+    // activated as-is, without the proactive scheduler refreshing it behind the
+    // caller's back the moment it is activated.
+    // 原样恢复必须尊重「不要续期」的意图：已过期会话按原样激活，
+    // 不会在激活的瞬间被主动调度偷偷刷新。
+    _activate(session, scheduleProactive: !expired);
   }
 
   /// Clears the persisted session and lands on [Unauthenticated], reporting why
@@ -319,7 +336,7 @@ final class AuthManager implements AuthTokenSource {
   ///
   /// 未登录时抛出 [NoActiveSessionException]。
   Future<Authenticated> updateSession(
-    AuthSession Function(AuthSession current) update,
+    FutureOr<AuthSession> Function(AuthSession current) update,
   ) async {
     _checkUsable();
     final current = currentSession;
@@ -329,10 +346,30 @@ final class AuthManager implements AuthTokenSource {
       );
     }
 
+    // `update` may be async (a round trip to fetch fresh profile data), so the
+    // session is re-checked on both sides of it.
+    // `update` 可以是异步的（例如先请求最新资料），因此前后都要重新校验。
     final epoch = _epoch;
-    final updated = update(current);
-    await tokenStore.save(updated);
     _ensureCurrent(epoch);
+    final updated = await update(current);
+    _ensureCurrent(epoch);
+
+    await tokenStore.save(updated);
+
+    // The session could have been invalidated while saving; do not leave a
+    // session behind after a logout.
+    // 保存期间也可能失效；登出之后不应残留会话。
+    if (!_isCurrent(epoch)) {
+      try {
+        await tokenStore.clear();
+      } catch (_) {
+        // Nothing more we can do; the caller still gets the exception below.
+        // 已无能为力，调用方仍会收到下面的异常。
+      }
+      throw NoActiveSessionException(
+        message: 'Operation aborted: session invalidated meanwhile',
+      );
+    }
 
     final next = Authenticated(updated);
     _activate(updated);
@@ -419,9 +456,13 @@ final class AuthManager implements AuthTokenSource {
     _checkUsable();
     final session = currentSession;
     if (session == null) return null;
-    final renewing =
-        session.isExpiredAt(clock()) && session.refreshToken != null;
-    if (!renewing) return session.accessToken;
+    if (!session.isExpiredAt(clock())) return session.accessToken;
+
+    // Expired. Without a refresh token there is no way to make it valid again,
+    // so an expired token must never be handed to the network layer.
+    // 已过期。没有刷新令牌就无法恢复有效性，因此绝不能把过期令牌交给网络层。
+    if (session.refreshToken == null) return null;
+
     try {
       return (await refresh()).accessToken;
     } on AuthException {
@@ -559,6 +600,7 @@ final class AuthManager implements AuthTokenSource {
   Future<void> _refreshQuietly() async {
     try {
       await refresh();
+      _proactiveFailures = 0;
     } on AuthException {
       // Intentionally ignored — see the doc comment above. A transient failure
       // must not silently stop proactive renewal, so it is re-armed.
@@ -575,14 +617,22 @@ final class AuthManager implements AuthTokenSource {
     // A policy-driven sign-out leaves no session; nothing left to renew.
     // 策略导致的登出已无会话，没有可续期的内容。
     if (currentSession == null) return;
-    _autoRefreshTimer = Timer(_autoRefreshRetryDelay, () {
+
+    _proactiveFailures++;
+    // Give up eventually: a permanently broken session should not keep a timer
+    // alive forever. Failures are already visible as AuthError on the stream.
+    // 最终放弃：彻底坏掉的会话不该让定时器永远活着。失败本身已通过 AuthError 可见。
+    if (_proactiveFailures > _autoRefreshMaxRetries) return;
+
+    final delay = _autoRefreshRetryDelay * _proactiveFailures;
+    _autoRefreshTimer = Timer(delay, () {
       unawaited(_refreshQuietly());
     });
   }
 
-  void _activate(AuthSession session) {
+  void _activate(AuthSession session, {bool scheduleProactive = true}) {
     _emit(Authenticated(session));
-    _scheduleAutoRefresh(session);
+    if (scheduleProactive) _scheduleAutoRefresh(session);
   }
 
   /// Schedule a one-shot [refresh] [autoRefreshAhead] before [AuthSession.expiresAt].

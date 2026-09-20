@@ -12,7 +12,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 Upgrade recommended:** `0.4.0` adds **`AuthManagerGroup`** — an opt-in layer that keeps one `AuthManager` per account, so several accounts can stay signed in at once and you can switch between them. `AuthManager` itself stays deliberately single-session, so this is a purely additive release with nothing to migrate. Pin `zero_auth: ^0.4.0` (or git `ref: release/v0.4.0`).
+> **🔔 Upgrade recommended:** `0.5.0` closes the remaining lifecycle holes: `validAccessToken()` no longer returns an expired token when it cannot be renewed, `AuthManagerGroup.remove()` can no longer leak a manager when logout fails, and using a group after `disposeAll()` is rejected instead of crashing. It also adds `AuthSession.copyWith()` / `isExpiringWithin()`, async `updateSession()`, bounded proactive retries and `restoreAll(dropOthers:)`. Nothing to migrate. Pin `zero_auth: ^0.5.0` (or git `ref: release/v0.5.0`).
 
 🌐 **[Official Website](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[View on pub.dev](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[View on GitHub](https://github.com/zero-labsco/zero_auth)**
 
@@ -63,7 +63,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 
 ```yaml
 dependencies:
-  zero_auth: ^0.4.0
+  zero_auth: ^0.5.0
 ```
 
 ### Git
@@ -73,7 +73,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v0.4.0   # pin the release/vX.Y.Z branch (immutable per release)
+      ref: release/v0.5.0   # pin the release/vX.Y.Z branch (immutable per release)
 ```
 
 ## Usage
@@ -260,7 +260,7 @@ flutter run
 
 | Member | Signature | Notes |
 |--------|-----------|-------|
-| constructor | `AuthManager({required strategy, TokenStore? tokenStore, Duration? autoRefreshAhead, Duration? autoRefreshRetryDelay, RefreshFailurePolicy? refreshFailurePolicy, DateTime Function()? clock, void Function(AuthState)? onStateChanged})` | `tokenStore` defaults to `InMemoryTokenStore`; `autoRefreshAhead` enables proactive renewal and `autoRefreshRetryDelay` re-arms a failed one; `clock` overrides the time source; `onStateChanged` observes every emission |
+| constructor | `AuthManager({required strategy, TokenStore? tokenStore, Duration? autoRefreshAhead, Duration? autoRefreshRetryDelay, RefreshFailurePolicy? refreshFailurePolicy, DateTime Function()? clock, void Function(AuthState)? onStateChanged})` | `tokenStore` defaults to `InMemoryTokenStore`; `autoRefreshAhead` enables proactive renewal, `autoRefreshRetryDelay` re-arms a failed one and `autoRefreshMaxRetries` caps those retries (default 3); `clock` overrides the time source; `onStateChanged` observes every emission |
 | `current` | `AuthState get current` | Latest state, always readable |
 | `state` | `Stream<AuthState> get state` | Broadcast, replays the latest value to new listeners |
 | `currentSession` | `AuthSession? get currentSession` | Available while `Authenticated` **and** `Refreshing` |
@@ -316,6 +316,9 @@ Helpers: `isAuthenticated` is `true` for `Authenticated` **and** `Refreshing`;
 | `accessToken`, `refreshToken`, `expiresAt`, `userId`, `displayName`, `claims` | Tokens, expiry, identity and raw claims |
 | `isExpired` | Expired per the system clock |
 | `isExpiredAt(DateTime)` | Expired per your own clock |
+| `timeUntilExpiry([DateTime])` | Remaining lifetime, or `null` when there is no expiry |
+| `isExpiringWithin(window, [DateTime])` | Renew a little before it actually dies |
+| `copyWith(...)` | Replace only the fields you pass; `null` keeps the current value (build a new session to clear one) |
 | `toJson()` / `AuthSession.fromJson()` | Persistence; `null` fields are omitted |
 
 ### Boundaries & value objects

@@ -12,7 +12,7 @@
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 推荐升级：** `0.4.0` 新增 **`AuthManagerGroup`** —— 一个可选层，为每个账号持有一个 `AuthManager`，从而让多个账号同时保持登录并可相互切换。`AuthManager` 本身仍刻意保持单会话，因此这是纯增量版本，无需任何迁移。请使用 `zero_auth: ^0.4.0`（Git 方式用 `ref: release/v0.4.0`）。
+> **🔔 推荐升级：** `0.5.0` 补上了剩余的生命周期漏洞：无法续期时 `validAccessToken()` 不再返回过期令牌；登出失败时 `AuthManagerGroup.remove()` 不再泄漏管理器；`disposeAll()` 之后使用分组会被明确拒绝而不是崩溃。另新增 `AuthSession.copyWith()` / `isExpiringWithin()`、异步 `updateSession()`、有上限的主动续期重试与 `restoreAll(dropOthers:)`。无需迁移。请使用 `zero_auth: ^0.5.0`（Git 方式用 `ref: release/v0.5.0`）。
 
 🌐 **[官方网站](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[在 pub.dev 查看](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[查看 GitHub 仓库](https://github.com/zero-labsco/zero_auth)**
 
@@ -63,7 +63,7 @@
 
 ```yaml
 dependencies:
-  zero_auth: ^0.4.0
+  zero_auth: ^0.5.0
 ```
 
 ### Git
@@ -73,7 +73,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v0.4.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
+      ref: release/v0.5.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
 ```
 
 ## 使用方法

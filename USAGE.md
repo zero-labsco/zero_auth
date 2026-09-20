@@ -50,7 +50,7 @@ your storage  ──▶  TokenStore     ──▶               ──▶  acces
 
 ```yaml
 dependencies:
-  zero_auth: ^0.1.0
+  zero_auth: ^0.5.0
 ```
 
 ```dart
@@ -177,7 +177,7 @@ Inputs / 入参：
 |---|---|
 | `Credentials` | `username`, `password` |
 | `RegistrationInput` | `username`, `password`, `displayName?`, `email?` |
-| `SessionHandle` | `userId` |
+| `SessionHandle` | `userId`, `refreshToken?` |
 | `RefreshToken` | `value` |
 
 Rules / 规则：

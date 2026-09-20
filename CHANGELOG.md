@@ -1,5 +1,68 @@
 # Changelog
 
+## 0.5.0
+
+### Fixed / 修复
+
+- **`validAccessToken()` no longer returns an expired token.** When the token had
+  expired *and* the session carried no refresh token, it returned the expired
+  value — the exact case the method exists to prevent. It now returns `null`.
+  - **`validAccessToken()` 不再返回过期令牌。** 当令牌已过期且会话没有刷新令牌时，
+    它会返回那个过期值 —— 正是该方法本该防止的情况。现在返回 `null`。
+- **`AuthManagerGroup.remove()` cannot leak a manager.** `logout()` may throw (for
+  example when the store cannot be cleared), which previously skipped `dispose()`.
+  Disposal now happens in a `finally`.
+  - **`AuthManagerGroup.remove()` 不再泄漏管理器。** `logout()` 可能抛异常（例如存储
+    无法清空），过去会让 `dispose()` 被跳过；现在释放放在 `finally` 中。
+- **Using a group after `disposeAll()` is rejected** with
+  `AuthException(code: 'group_disposed')` instead of throwing
+  `Bad state: Cannot add event after closing` from the closed stream controller.
+  `disposeAll()` is also idempotent now.
+  - **`disposeAll()` 之后使用分组会被拒绝**（`AuthException(code: 'group_disposed')`），
+    不再由已关闭的 stream controller 抛出 `Bad state`。`disposeAll()` 现可重复调用。
+- **`restore(refreshIfExpired: false)` no longer triggers a renewal behind the
+  caller's back.** An expired session restored verbatim is activated without the
+  proactive scheduler immediately refreshing it.
+  - **`restore(refreshIfExpired: false)` 不再背着调用方触发续期。** 原样恢复的过期
+    会话被激活时，主动调度不会立刻去刷新它。
+- **`updateSession()` closes a save race**: it re-checks the session on both sides
+  of the (now possibly async) update, and clears the store again if the session was
+  invalidated while saving, so a logout cannot leave a session behind.
+  - **`updateSession()` 补上保存竞态**：在（现在可能是异步的）更新前后都重新校验，
+    若保存期间会话失效则再次清空存储，登出后不会残留会话。
+
+### Changed / 变更
+
+- **Proactive renewal retries are bounded.** A failed renewal is re-armed with a
+  linear backoff (30s, 60s, 90s…) up to `autoRefreshMaxRetries` (default 3), instead
+  of retrying forever. Failures remain visible as `AuthError` on the stream.
+  - **主动续期重试有上限。** 失败后按线性退避（30s、60s、90s…）重新排程，最多
+    `autoRefreshMaxRetries` 次（默认 3），不再无限重试。失败仍以 `AuthError` 可见。
+- `updateSession()` accepts a `FutureOr<AuthSession>` update, so the new session can
+  be fetched over the network first. Sync callers are unaffected.
+  - `updateSession()` 接受 `FutureOr<AuthSession>`，可先联网再取新会话；同步调用方不受影响。
+- `logoutAll()` signs out every account even if one of them fails, then reports the
+  first error.
+  - `logoutAll()` 即使某个账号失败也会继续登出其余账号，最后上报第一个错误。
+
+### Added / 新增
+
+- **`AuthSession.copyWith()`** — replace only the fields you pass. Passing `null`
+  keeps the current value, as with most hand-written `copyWith`; build a new session
+  to clear a field.
+  - **`AuthSession.copyWith()`**——只替换传入的字段。与多数手写实现一样，传 `null`
+    表示保留原值；要清空字段请新建会话。
+- **`AuthSession.timeUntilExpiry()`** and **`isExpiringWithin(window)`** — renew a
+  little before the token actually dies.
+  - **`AuthSession.timeUntilExpiry()`** 与 **`isExpiringWithin(window)`**——便于在
+    令牌真正失效前提前续期。
+- **`autoRefreshMaxRetries`** — constructor knob for how many failed proactive
+  renewals to retry (default 3).
+  - **`autoRefreshMaxRetries`**——构造参数，主动续期失败后最多重试几次（默认 3）。
+- **`AuthManagerGroup.restoreAll(dropOthers:)`** — drop managers for accounts that
+  are no longer known.
+  - **`AuthManagerGroup.restoreAll(dropOthers:)`**——释放不再已知的账号管理器。
+
 ## 0.4.0
 
 ### Fixed / 修复

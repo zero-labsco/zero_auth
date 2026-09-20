@@ -5,6 +5,7 @@ import 'auth_session.dart';
 import 'auth_state.dart';
 import 'auth_strategy.dart';
 import 'auth_token_source.dart';
+import 'exceptions.dart';
 import 'token_store.dart';
 
 /// Coordinates several signed-in accounts at once.
@@ -56,6 +57,19 @@ final class AuthManagerGroup implements AuthTokenSource {
 
   StreamSubscription<AuthState>? _activeSubscription;
   String? _activeId;
+  bool _closed = false;
+
+  /// Rejects usage after [disposeAll], mirroring the single-manager
+  /// `manager_disposed` contract.
+  /// 在 [disposeAll] 之后拒绝使用，与单管理器的 `manager_disposed` 约定一致。
+  void _checkUsable() {
+    if (_closed) {
+      throw AuthException(
+        'AuthManagerGroup has been disposed',
+        code: 'group_disposed',
+      );
+    }
+  }
 
   /// Ids currently owned by the group.
   /// 分组当前持有的账号 id。
@@ -71,13 +85,16 @@ final class AuthManagerGroup implements AuthTokenSource {
 
   /// Returns the manager for [accountId], creating it on first use.
   /// 返回 [accountId] 对应的管理器，首次使用时创建。
-  AuthManager forAccount(String accountId) => _managers.putIfAbsent(
-        accountId,
-        () => AuthManager(
-          strategy: _strategyFactory(accountId),
-          tokenStore: _storeFactory(accountId),
-        ),
-      );
+  AuthManager forAccount(String accountId) {
+    _checkUsable();
+    return _managers.putIfAbsent(
+      accountId,
+      () => AuthManager(
+        strategy: _strategyFactory(accountId),
+        tokenStore: _storeFactory(accountId),
+      ),
+    );
+  }
 
   /// Explicitly registers an account and returns its manager.
   ///
@@ -91,9 +108,18 @@ final class AuthManagerGroup implements AuthTokenSource {
   /// Signs every account out and forgets them all.
   /// 登出所有账号并全部遗忘。
   Future<void> logoutAll() async {
+    _checkUsable();
+    Object? firstError;
     for (final id in _managers.keys.toList()) {
-      await remove(id);
+      try {
+        await remove(id);
+      } catch (e) {
+        // Keep going: one failing account must not leave the others signed in.
+        // 继续处理：某个账号失败不应让其它账号保持登录。
+        firstError ??= e;
+      }
     }
+    if (firstError != null) throw firstError;
   }
 
   /// Makes [accountId] the active account.
@@ -104,6 +130,7 @@ final class AuthManagerGroup implements AuthTokenSource {
   ///
   /// 分组的 [state] 流会切到该管理器并重放其当前状态；此调用不会登录或登出任何账号。
   void switchTo(String accountId) {
+    _checkUsable();
     if (_activeId == accountId && _activeSubscription != null) return;
     _activeId = accountId;
     forAccount(accountId);
@@ -125,6 +152,7 @@ final class AuthManagerGroup implements AuthTokenSource {
   /// exactly like [AuthManager.state].
   /// 激活账号的状态流。与 [AuthManager.state] 一样，对新订阅者重放最近值。
   Stream<AuthState> get state {
+    _checkUsable();
     final sc = StreamController<AuthState>();
     sc.add(current);
     final sub = _controller.stream.listen(
@@ -142,7 +170,20 @@ final class AuthManagerGroup implements AuthTokenSource {
   Future<void> restoreAll(
     Iterable<String> accountIds, {
     String? activeId,
+    bool dropOthers = false,
   }) async {
+    _checkUsable();
+
+    if (dropOthers) {
+      final keep = accountIds.toSet();
+      for (final id in _managers.keys.toList()) {
+        if (keep.contains(id)) continue;
+        final stale = _managers.remove(id);
+        await stale?.dispose();
+        if (_activeId == id) _activeId = null;
+      }
+    }
+
     for (final id in accountIds) {
       await forAccount(id).restore();
     }
@@ -154,11 +195,19 @@ final class AuthManagerGroup implements AuthTokenSource {
   /// inactive and emits [Unauthenticated].
   /// 登出并移除某个账号。若它正处于激活状态，分组会转为无激活并发 [Unauthenticated]。
   Future<void> remove(String accountId) async {
+    _checkUsable();
     final manager = _managers.remove(accountId);
     if (manager == null) return;
 
-    await manager.logout();
-    await manager.dispose();
+    // `logout()` may throw (for instance when the store cannot be cleared). Even
+    // then the manager must not leak, so disposal happens in a `finally`.
+    // `logout()` 可能抛异常（例如存储无法清空）。即便如此管理器也不该泄漏，
+    // 因此释放放在 `finally` 中。
+    try {
+      await manager.logout();
+    } finally {
+      await manager.dispose();
+    }
 
     if (_activeId == accountId) {
       _activeId = null;
@@ -170,6 +219,8 @@ final class AuthManagerGroup implements AuthTokenSource {
   /// Disposes every manager and closes the group's stream.
   /// 释放所有管理器并关闭分组的状态流。
   Future<void> disposeAll() async {
+    if (_closed) return;
+    _closed = true;
     await _activeSubscription?.cancel();
     _activeSubscription = null;
 

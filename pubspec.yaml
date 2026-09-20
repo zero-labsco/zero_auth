@@ -1,7 +1,7 @@
 name: zero_auth
 description: Backend-agnostic auth state machine & session lifecycle for Dart/Flutter.
 license: MPL-2.0
-version: 0.4.0
+version: 0.5.0
 homepage: https://github.com/zero-labsco/zero_auth
 repository: https://github.com/zero-labsco/zero_auth
 documentation: https://zero-labsco.github.io/zero_auth/
