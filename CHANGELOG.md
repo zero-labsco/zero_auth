@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.4.0
+
+### Added / 新增
+
+- **`AuthManagerGroup`** — an optional coordination layer that keeps one
+  [AuthManager] per account, so several accounts can stay signed in at once and
+  you can switch between them. It exposes `forAccount`, `switchTo`,
+  `restoreAll`, `remove` and `disposeAll`, mirrors the active account through
+  `current` / `state` / `currentSession`, and implements `AuthTokenSource` so
+  interceptors always read the active account's token.
+  - **`AuthManagerGroup`**——可选的协调层，为每个账号持有一个 [AuthManager]，从而让多
+    个账号同时保持登录并可切换。它提供 `forAccount`、`switchTo`、`restoreAll`、
+    `remove`、`disposeAll`，通过 `current` / `state` / `currentSession` 反映激活账号，
+    并实现 `AuthTokenSource`，使拦截器始终读到激活账号的令牌。
+
+- Multi-account is deliberately **opt-in**: `AuthManager` remains single-session,
+  because "who is logged in?" and "which of these accounts is active?" are
+  different questions. Existing code keeps working unchanged; nothing to migrate.
+  - 多账号被刻意设计为**可选**：`AuthManager` 仍是单会话，因为「谁登录了？」与
+    「这些账号里哪个是激活的？」是两个不同的问题。现有代码无需任何改动。
+
+### Docs / 文档
+
+- New **Multi-Account** cookbook covering both shapes: switching between
+  accounts (logout + login is usually enough) and genuinely concurrent accounts
+  (use `AuthManagerGroup`).
+  - 新增**多账号** cookbook，覆盖两种形态：账号切换（登出再登录通常足够）与真正的
+    多账号并存（使用 `AuthManagerGroup`）。
+
 ## 0.3.0
 
 ### Added / 新增

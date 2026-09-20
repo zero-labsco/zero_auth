@@ -16,5 +16,6 @@ export 'src/auth_strategy.dart';
 export 'src/token_store.dart';
 export 'src/auth_token_source.dart';
 export 'src/auth_manager.dart';
+export 'src/auth_manager_group.dart';
 export 'src/exceptions.dart';
 export 'src/error/error.dart';

@@ -23,6 +23,7 @@ A backend-agnostic auth state machine & session lifecycle core for Dart/Flutter.
 | **Typed Auth Exceptions** | `InvalidCredentialsException`, `SessionExpiredException` and friends, mapped from your strategy's `code` / `InvalidCredentialsException`、`SessionExpiredException` 等，由策略的 `code` 映射而来 |
 | **Configurable Failure Policy** | `refreshFailurePolicy` decides whether a failed refresh signs the user out / `refreshFailurePolicy` 决定刷新失败是否登出 |
 | **Runnable Example** | A full Flutter demo app (Android/iOS/Web/Windows) plus a layered `dart:io` demo backend that issues real JWTs / 完整 Flutter 示例与一个签发真实 JWT 的分层演示后端 |
+| **Multiple Accounts** | Optional `AuthManagerGroup` keeps one manager per account / 可选 `AuthManagerGroup`，每账号一个管理器 |
 | **Cross-platform** | Pure Dart — runs anywhere Dart or Flutter runs / 纯 Dart，跨平台 |
 
 ## 📚 Table of Contents / 目录
@@ -40,6 +41,7 @@ A backend-agnostic auth state machine & session lifecycle core for Dart/Flutter.
 | [Configuration](Configuration) | Configuration options / 配置说明 |
 | [Session Persistence](Persistence) | Restoring and renewing a saved session / 会话持久化与恢复 |
 | [Third-Party Login](Third-Party-Login) | OAuth / magic links via `loginWith` / 用 `loginWith` 接入第三方登录 |
+| [Multiple Accounts](Multi-Account) | Switching vs concurrent accounts / 账号切换与多账号并存 |
 | [FAQ](FAQ) | Frequently asked questions / 常见问题 |
 
 ## 🔗 Links / 链接

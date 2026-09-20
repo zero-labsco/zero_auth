@@ -50,6 +50,12 @@ export const pageMap = [{
     "sidebarTitle": "Installation"
   }
 }, {
+  name: "Multi-Account",
+  route: "/Multi-Account",
+  frontMatter: {
+    "sidebarTitle": "Multi Account"
+  }
+}, {
   name: "Network-Integration",
   route: "/Network-Integration",
   frontMatter: {

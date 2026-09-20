@@ -12,7 +12,7 @@
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 推荐升级：** `0.3.0` 修复了那些会静默拖垮真实应用的失败路径——主动刷新不再泄漏未处理异常、刷新令牌失效后不再「假装已登录」拿着过期令牌、启动时的过期会话现在会自愈。同时新增 **`loginWith`**（第三方 OAuth / 魔法链接 / Passkey）、**`validAccessToken()`**（拦截器友好），以及 `Refreshing` / `LoggingOut` 状态（⚠️ **破坏性**：穷举 `switch` 必须处理它们，建议改用 `state.isAuthenticated`）。请使用 `zero_auth: ^0.3.0`（Git 方式用 `ref: release/v0.3.0`）。
+> **🔔 推荐升级：** `0.4.0` 新增 **`AuthManagerGroup`** —— 一个可选层，为每个账号持有一个 `AuthManager`，从而让多个账号同时保持登录并可相互切换。`AuthManager` 本身仍刻意保持单会话，因此这是纯增量版本，无需任何迁移。请使用 `zero_auth: ^0.4.0`（Git 方式用 `ref: release/v0.4.0`）。
 
 🌐 **[官方网站](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[在 pub.dev 查看](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[查看 GitHub 仓库](https://github.com/zero-labsco/zero_auth)**
 
@@ -48,6 +48,7 @@
 - **绝不发送过期令牌**：`validAccessToken()` 在令牌过期时先续期再返回，非常适合 HTTP 拦截器。
 - **类型化认证异常**：`InvalidCredentialsException`、`SessionExpiredException` 等，可由你策略里的 `AuthException.code` 自动映射而来。
 - **可配置的刷新失败处理**：`refreshFailurePolicy` 决定一次刷新失败是否让用户登出（默认：不可恢复的失败登出，瞬时故障保留会话）。
+- **多账号（可选）**：`AuthManagerGroup` 为每个账号持有一个 `AuthManager`，可让多个账号同时保持登录；内核本身仍是单会话。
 - **可插拔持久化**：`TokenStore` 是唯一的持久化边界；内核自带 `InMemoryTokenStore`，生产环境使用安全存储（见 `example/`）。
 - **统一错误**：领域失败映射为 `AppException`（来自本包的错误内核）；绝不直接跨公共面抛裸 `Exception`。
 - **面向网络**：`AuthTokenSource` 是扩展点，让 Dio / GraphQL 拦截器能为请求附加 `Authorization: Bearer` 头。
@@ -62,7 +63,7 @@
 
 ```yaml
 dependencies:
-  zero_auth: ^0.3.0
+  zero_auth: ^0.4.0
 ```
 
 ### Git
@@ -72,7 +73,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v0.3.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
+      ref: release/v0.4.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
 ```
 
 ## 使用方法
@@ -264,6 +265,23 @@ flutter run
 | `logout()` | `Future<void>` | 发出 `LoggingOut`、尽力调用后端、清空存储，落到 `Unauthenticated` |
 | `dispose()` | `Future<void>` | 关闭状态流并取消主动刷新 |
 
+### `AuthManagerGroup`（可选，多账号）
+
+为每个账号协调一个 `AuthManager`。可选：不用它，`AuthManager` 就仍是单会话，行为完全不变。
+
+| 成员 | 说明 |
+|------|------|
+| 构造函数 | `AuthManagerGroup({required strategyFactory, required storeFactory})` —— 两者都会收到账号 id；请为每个账号提供独立的 `TokenStore` |
+| `forAccount(id)` | 惰性创建并缓存该账号的 `AuthManager` |
+| `switchTo(id)` | 激活某个账号，分组的 `state` 随之切换 |
+| `current` / `state` / `currentSession` / `accessToken` | 反映激活账号 |
+| `restoreAll(ids, {activeId})` | 恢复所有账号，然后激活其中一个 |
+| `remove(id)` | 登出并移除某个账号 |
+| `disposeAll()` | 释放所有管理器 |
+
+若只是需要「切换账号」，简单的登出再登录通常就够了 —— 参见
+[多账号 cookbook](https://zero-labsco.github.io/zero_auth/Multi-Account)。
+
 ### `AuthState`（密封）
 
 | 子类 | 负载 | 含义 |
@@ -344,7 +362,7 @@ flutter run
 本 README 是入口，更深入的内容在这两处：
 
 - [使用与 API 指南](USAGE.md) —— 完整参考：全部边界、错误模型、生命周期最佳实践、常见坑与测试。
-- [文档站](https://zero-labsco.github.io/zero_auth/) —— 专题页与 cookbook：[认证状态机](https://zero-labsco.github.io/zero_auth/Auth-State-Machine)、[后端策略](https://zero-labsco.github.io/zero_auth/Backend-Strategy)、[令牌存储](https://zero-labsco.github.io/zero_auth/Token-Store)、[网络集成](https://zero-labsco.github.io/zero_auth/Network-Integration)、[错误](https://zero-labsco.github.io/zero_auth/Errors)、[配置](https://zero-labsco.github.io/zero_auth/Configuration)、[会话持久化](https://zero-labsco.github.io/zero_auth/Persistence) 与 [第三方登录](https://zero-labsco.github.io/zero_auth/Third-Party-Login)。
+- [文档站](https://zero-labsco.github.io/zero_auth/) —— 专题页与 cookbook：[认证状态机](https://zero-labsco.github.io/zero_auth/Auth-State-Machine)、[后端策略](https://zero-labsco.github.io/zero_auth/Backend-Strategy)、[令牌存储](https://zero-labsco.github.io/zero_auth/Token-Store)、[网络集成](https://zero-labsco.github.io/zero_auth/Network-Integration)、[错误](https://zero-labsco.github.io/zero_auth/Errors)、[配置](https://zero-labsco.github.io/zero_auth/Configuration)、[会话持久化](https://zero-labsco.github.io/zero_auth/Persistence)、[第三方登录](https://zero-labsco.github.io/zero_auth/Third-Party-Login) 与 [多账号](https://zero-labsco.github.io/zero_auth/Multi-Account)。
 
 ## 贡献
 

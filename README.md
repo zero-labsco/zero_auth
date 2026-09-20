@@ -12,7 +12,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 Upgrade recommended:** `0.3.0` fixes the failure paths that silently broke real apps — a proactive refresh no longer leaks an unhandled error, a dead refresh token no longer leaves you "logged in" with a stale token, and an expired persisted session now heals itself at startup. It also adds **`loginWith`** for third-party OAuth / magic links / passkeys, **`validAccessToken()`** for interceptors, and `Refreshing` / `LoggingOut` states (⚠️ **breaking**: exhaustive `switch` must handle them — prefer `state.isAuthenticated`). Pin `zero_auth: ^0.3.0` (or git `ref: release/v0.3.0`).
+> **🔔 Upgrade recommended:** `0.4.0` adds **`AuthManagerGroup`** — an opt-in layer that keeps one `AuthManager` per account, so several accounts can stay signed in at once and you can switch between them. `AuthManager` itself stays deliberately single-session, so this is a purely additive release with nothing to migrate. Pin `zero_auth: ^0.4.0` (or git `ref: release/v0.4.0`).
 
 🌐 **[Official Website](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[View on pub.dev](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[View on GitHub](https://github.com/zero-labsco/zero_auth)**
 
@@ -48,6 +48,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 - **Never send an expired token** — `validAccessToken()` renews the session first when the token has expired; ideal for HTTP interceptors.
 - **Typed auth exceptions** — `InvalidCredentialsException`, `SessionExpiredException`, and friends, mapped automatically from your strategy's `AuthException.code`.
 - **Configurable refresh failure handling** — `refreshFailurePolicy` decides whether a failed refresh signs the user out (default: yes for unrecoverable failures, no for transient ones).
+- **Multiple accounts (opt-in)** — `AuthManagerGroup` keeps one `AuthManager` per account so several can stay signed in at once; the core itself stays single-session.
 - **Pluggable persistence** — `TokenStore` is the only persistence boundary; the core ships `InMemoryTokenStore`, production uses a secure store (see `example/`).
 - **Unified errors** — domain failures map to `AppException` (from this package's error kernel); raw `Exception`s never cross the public surface.
 - **Network-ready** — `AuthTokenSource` is the extension point that lets Dio / GraphQL interceptors attach `Authorization: Bearer` headers.
@@ -62,7 +63,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 
 ```yaml
 dependencies:
-  zero_auth: ^0.3.0
+  zero_auth: ^0.4.0
 ```
 
 ### Git
@@ -72,7 +73,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v0.3.0   # pin the release/vX.Y.Z branch (immutable per release)
+      ref: release/v0.4.0   # pin the release/vX.Y.Z branch (immutable per release)
 ```
 
 ## Usage
@@ -273,6 +274,24 @@ flutter run
 | `logout()` | `Future<void>` | Emits `LoggingOut`, best-effort backend call, clears the store, lands on `Unauthenticated` |
 | `dispose()` | `Future<void>` | Closes the stream and cancels proactive refresh |
 
+### `AuthManagerGroup` (optional, multi-account)
+
+Coordinates one `AuthManager` per account. Opt-in: `AuthManager` itself stays
+single-session, so nothing changes unless you use this.
+
+| Member | Notes |
+|--------|-------|
+| constructor | `AuthManagerGroup({required strategyFactory, required storeFactory})` — both receive the account id; give each account its own `TokenStore` |
+| `forAccount(id)` | Lazily creates and caches that account's `AuthManager` |
+| `switchTo(id)` | Makes an account active; the group's `state` follows it |
+| `current` / `state` / `currentSession` / `accessToken` | Mirror the active account |
+| `restoreAll(ids, {activeId})` | Restores every account, then activates one |
+| `remove(id)` | Signs out and forgets an account |
+| `disposeAll()` | Releases every manager |
+
+If you only need to *switch* between accounts, a simple logout + login is usually
+enough — see the [Multi-Account cookbook](https://zero-labsco.github.io/zero_auth/Multi-Account).
+
 ### `AuthState` (sealed)
 
 | Subtype | Payload | Meaning |
@@ -362,8 +381,9 @@ This README is the front door; these go deeper:
   [Network Integration](https://zero-labsco.github.io/zero_auth/Network-Integration),
   [Errors](https://zero-labsco.github.io/zero_auth/Errors),
   [Configuration](https://zero-labsco.github.io/zero_auth/Configuration),
-  [Session Persistence](https://zero-labsco.github.io/zero_auth/Persistence) and
-  [Third-Party Login](https://zero-labsco.github.io/zero_auth/Third-Party-Login).
+  [Session Persistence](https://zero-labsco.github.io/zero_auth/Persistence),
+  [Third-Party Login](https://zero-labsco.github.io/zero_auth/Third-Party-Login)
+  and [Multi-Account](https://zero-labsco.github.io/zero_auth/Multi-Account).
 
 ## Contributing
 

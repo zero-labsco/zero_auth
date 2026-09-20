@@ -12,6 +12,7 @@ export default {
 
   '--cookbook': { type: 'separator', title: '🍳 Cookbook' },
   'Third-Party-Login': '🔑 Third-Party Login',
+  'Multi-Account': '👥 Multiple Accounts',
 
   '--advanced': { type: 'separator', title: '🛠 Advanced' },
   Errors: '⚠️ Errors',
