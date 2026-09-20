@@ -87,10 +87,28 @@ dio.interceptors.add(AuthInterceptor(group)); // reads the active token / 读激
 await group.restoreAll(knownIds, activeId: lastUsedId);
 ```
 
+### Adding accounts explicitly / 显式新增账号
+
+`forAccount` creates on first use; `addAccount` is the same call with a name that
+reads better when you mean "register an account here":
+
+`forAccount` 首次使用时创建；`addAccount` 是同一个调用，只是名字在「这里注册账号」的
+语境下更好读：
+
+```dart
+final alice = group.addAccount('alice');
+```
+
 ### Removing an account / 移除账号
 
 ```dart
 await group.remove('alice');   // logs out, disposes, forgets it
+```
+
+### Signing everything out / 全部登出
+
+```dart
+await group.logoutAll();       // every account, in turn
 ```
 
 If the removed account was active, the group becomes inactive and emits

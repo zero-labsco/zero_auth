@@ -45,6 +45,26 @@ When a `401` is returned, refresh the session and retry; if refresh fails, the m
 
 当返回 `401` 时，刷新会话并重试；若刷新失败，管理器会发出 `AuthError`，应用随之跳转登录。
 
+`example/lib/dio_interceptor.dart` also ships `AuthRetryInterceptor`, which does
+exactly that — refreshes through the manager (single-flight) and replays the
+request **once**, so a retry loop cannot form:
+
+`example/lib/dio_interceptor.dart` 里还提供了 `AuthRetryInterceptor`，正是做这件事 ——
+通过管理器刷新（单飞）并把请求**重试一次**，因此不会形成重试风暴：
+
+```dart
+final dio = Dio()
+  ..interceptors.add(
+    AuthRetryInterceptor(manager: authManager, dio: dio),
+  );
+```
+
+Two more interceptor variants there / 那里还有另外两种拦截器：
+
+- `RefreshingAuthInterceptor` — never sends an expired token: it renews first via
+  `validAccessToken()` / 绝不发送过期令牌，先用 `validAccessToken()` 续期。
+- `AuthInterceptor` — the plain `AuthTokenSource` version / 基础的令牌源版本。
+
 ## Other HTTP clients / 其它客户端
 
 Because `AuthTokenSource` is a plain interface, the same pattern works for `package:http`, `chopper`, or any client that lets you mutate request headers.

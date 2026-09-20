@@ -18,6 +18,8 @@ This file defines the architecture, coding conventions, and required workflows f
   - `auth_state.dart` — sealed `AuthState`: `Unauthenticated` / `Authenticating` / `Authenticated` / `AuthError` (+ `AuthFail` payload).
   - `auth_session.dart` — `AuthSession` (access/refresh token, expiry, user id, display name, raw claims) and `SessionHandle`.
   - `auth_strategy.dart` — `AuthStrategy` (the backend boundary), `Credentials`, `RegistrationInput`, `RefreshToken`.
+  - `auth_manager_group.dart` — `AuthManagerGroup`: optional multi-account coordination. Owns one `AuthManager` per account (`forAccount` / `addAccount` / `switchTo` / `restoreAll` / `remove` / `logoutAll` / `disposeAll`); implements `AuthTokenSource` for the active account. `AuthManager` itself stays single-session on purpose.
+  - `auth_capabilities.dart` — optional capability interfaces (`SupportsPasswordReset`, `SupportsPasswordChange`, `SupportsReauthentication`) detected via `AuthManager.supports<T>()`, so the four-method `AuthStrategy` contract never has to grow.
   - `token_store.dart` — `TokenStore` (the only persistence boundary) + `InMemoryTokenStore`.
   - `auth_token_source.dart` — `AuthTokenSource`: read-only token source for network layers.
   - `exceptions.dart` — `AuthException` (auth-specific failures).

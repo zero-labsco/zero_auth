@@ -45,6 +45,18 @@ mapping, preserving any vocabulary it does not recognise.
 | `refresh_token_missing` | `RefreshTokenMissingException` |
 | anything else / 其它 | preserved as-is, or `UnexpectedAuthException` / 原样保留或包装为 `UnexpectedAuthException` |
 
+Codes raised by the manager itself (not your strategy) / 由管理器自身产生的 code：
+
+| code | Raised when / 何时触发 |
+|------|------------------------|
+| `auth_flow_in_progress` | Another `login` / `register` / `loginWith` is already running / 已有登录流程在执行 |
+| `manager_disposed` | An operation is called after `dispose()` / `dispose()` 后又调用操作 |
+
+> Overlapping authentication flows are rejected rather than racing: a second
+> `login()` while one is in flight throws `auth_flow_in_progress`.
+>
+> 重叠的登录流程会被拒绝而非争抢：进行中再次 `login()` 会抛 `auth_flow_in_progress`。
+
 `AuthStrategy` implementations should map transport/API errors into `AuthException` (or a custom `AppException` subclass) so callers get a stable `code`.
 
 `AuthStrategy` 实现方应将传输层/API 错误映射为 `AuthException`（或自定义 `AppException` 子类），让调用方拿到稳定的 `code`。

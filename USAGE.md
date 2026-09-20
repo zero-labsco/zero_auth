@@ -559,11 +559,27 @@ Future<void> invoke(Future<dynamic> Function() action) async {
 
 ### 10.2 Suggested `code` values / 建议的 code 取值
 
-`invalid_credentials` · `invalid_refresh_token` · `network_unreachable` · `http_error` · `unauthorized` · `unknown`
+Codes your strategy should throw / 策略建议抛出的 code：
+
+`invalid_credentials` · `invalid_grant` · `invalid_refresh_token` ·
+`token_expired` · `session_expired` · `network_unreachable` · `http_error` ·
+`unauthorized` · `unknown`
 
 ```dart
 throw AuthException('Wrong password', code: 'invalid_credentials');
 ```
+
+Codes raised by the manager itself / 管理器自身产生的 code：
+
+| Code | Meaning |
+|---|---|
+| `invalid_credentials` | Mapped from your strategy / 由你的策略映射而来 |
+| `session_expired`, `invalid_grant`, `invalid_refresh_token`, `token_expired` | `SessionExpiredException` — the grant is dead / 授权失效 |
+| `no_active_session` | An operation needed an active session / 需要活动会话却没有 |
+| `refresh_token_missing` | Refresh requested without a refresh token / 无刷新令牌却请求刷新 |
+| `auth_flow_in_progress` | Another login / register / loginWith is running / 已有登录流程在执行 |
+| `manager_disposed` | Operation called after `dispose()` / 释放后又调用操作 |
+| `unexpected_auth_failure` | Fallback for anything unclassifiable / 无法归类时的兜底 |
 
 ### 10.3 `Result<T>` (optional) / 可选的显式结果
 
@@ -585,7 +601,15 @@ if (r.isOk) print(r.getOrThrow.userId);   // or r.map((s) => s.userId)
 
 ```dart
 final class AuthManager implements AuthTokenSource {
-  AuthManager({required AuthStrategy strategy, TokenStore? tokenStore});
+  AuthManager({
+    required AuthStrategy strategy,
+    TokenStore? tokenStore,
+    Duration? autoRefreshAhead,
+    Duration? autoRefreshRetryDelay,
+    RefreshFailurePolicy? refreshFailurePolicy,
+    DateTime Function()? clock,
+    void Function(AuthState state)? onStateChanged,
+  });
 }
 ```
 
@@ -596,6 +620,8 @@ final class AuthManager implements AuthTokenSource {
 | `current` | `AuthState get current` | Current state, always available / 当前状态，始终可读 |
 | `state` | `Stream<AuthState> get state` | Broadcast, replays last value / 广播且重放最近值 |
 | `autoRefreshAhead` | `Duration?` | Proactive renewal lead time; `null` disables it / 主动续期提前量，`null` 为关闭 |
+| `autoRefreshRetryDelay` | `Duration` | Re-arms a proactive renewal that failed (default 30s), while a session still exists / 主动续期失败后重新排程（默认 30 秒） |
+| `onStateChanged` | `void Function(AuthState)?` | Called for every emission; handy for logging or analytics without subscribing / 每次发出状态时调用，便于日志或埋点 |
 | `refreshFailurePolicy` | `RefreshFailurePolicy` | Whether a failed refresh signs out / 刷新失败是否登出 |
 | `clock` | `DateTime Function()` | Time source; defaults to the system clock / 时间源，默认系统时钟 |
 | `currentSession` | `AuthSession? get currentSession` | `null` unless `Authenticated` / `Refreshing` |
@@ -607,7 +633,9 @@ final class AuthManager implements AuthTokenSource {
 | `logout()` | `Future<void>` | Emits `LoggingOut`, best-effort `strategy.logout`, then `clear()`, then `Unauthenticated` |
 | `refresh()` | `Future<AuthSession>` | Emits `Refreshing`; single-flight; on failure applies `refreshFailurePolicy` / 发出 `Refreshing`；单飞；失败时按策略处理 |
 | `validAccessToken()` | `Future<String?>` | Never returns an expired token; refreshes first when needed / 绝不返回过期令牌，必要时先续期 |
-| `dispose()` | `Future<void>` | Closes the internal stream controller and cancels proactive refresh |
+| `updateSession()` | `Future<Authenticated> updateSession(AuthSession Function(AuthSession current))` | Replaces the active session without a re-login (profile update, refreshed claims); throws `NoActiveSessionException` when signed out / 免重新登录替换活动会话 |
+| `supports<T>()` | `bool supports<T>()` | Whether the strategy implements an optional capability / 策略是否实现了某可选能力 |
+| `dispose()` | `Future<void>` | Closes the stream and cancels proactive refresh. **Later operations throw** `AuthException(code: 'manager_disposed')` / 关闭状态流；之后再操作会抛 `manager_disposed` |
 
 ### 11.2 `AuthState` (sealed)
 
@@ -691,8 +719,23 @@ String? get accessToken;
 |---|---|
 | `Credentials` | `Credentials({required String username, required String password})` |
 | `RegistrationInput` | `RegistrationInput({required String username, required String password, String? displayName, String? email})` |
-| `SessionHandle` | `SessionHandle({required String userId})` |
+| `SessionHandle` | `SessionHandle({required String userId, RefreshToken? refreshToken})` |
 | `RefreshToken` | `RefreshToken(String value)` |
+
+Optional capability interfaces a strategy may also implement, detected with
+`AuthManager.supports<T>()` / 策略可选实现的能力接口，可用 `supports<T>()` 检测：
+
+| Interface | Method |
+|---|---|
+| `SupportsPasswordReset` | `Future<void> requestPasswordReset(String identifier)` |
+| `SupportsPasswordChange` | `Future<void> changePassword({required currentPassword, required newPassword})` |
+| `SupportsReauthentication` | `Future<AuthSession> reauthenticate(Credentials credentials)` |
+
+```dart
+if (auth.supports<SupportsPasswordReset>()) {
+  await (auth.strategy as SupportsPasswordReset).requestPasswordReset(email);
+}
+```
 
 ### 11.8 Errors / 错误
 
@@ -702,7 +745,25 @@ String? get accessToken;
 | `AuthException extends AppException` | `AuthFail fail`；`AuthException(String message, {String? code, Object? cause})`；`AuthException.fromFail(AuthFail)` |
 | `AuthFail` | `String message`, `String? code`, `Object? cause` |
 | `Result<T>` (sealed) | `bool isOk`, `bool isErr`, `T getOrThrow`, `Result<R> map<R>(R Function(T))` |
-| `Ok<T>` / `Err<T>` | `T value` / `Object error` |
+| `Ok<T>` / `Err<T>` | `T value` / `Object error` (plus `Err.appException` for the mapped domain error / `Err.appException` 提供映射后的领域错误) |
+
+### 11.9 `AuthManagerGroup` (optional, multi-account)
+
+Coordinates one `AuthManager` per account. Opt-in — `AuthManager` itself stays
+single-session. See the
+[Multi-Account cookbook](https://zero-labsco.github.io/zero_auth/Multi-Account).
+协调每个账号一个 `AuthManager`，可选 —— `AuthManager` 本身仍为单会话。详见
+[多账号 cookbook](https://zero-labsco.github.io/zero_auth/Multi-Account)。
+
+| Member | Notes |
+|---|---|
+| `forAccount(id)` / `addAccount(id)` | Lazily creates and caches that account's manager / 惰性创建并缓存 |
+| `switchTo(id)` | Makes an account active; the group's `state` follows it / 激活账号，状态流随之切换 |
+| `current` / `state` / `currentSession` / `accessToken` | Mirror the active account / 反映激活账号 |
+| `restoreAll(ids, {activeId})` | Restores every account, then activates one / 恢复所有账号并激活其一 |
+| `remove(id)` | Signs out and forgets an account / 登出并移除 |
+| `logoutAll()` | Signs every account out / 一次性登出所有账号 |
+| `disposeAll()` | Releases every manager / 释放所有管理器 |
 
 ---
 

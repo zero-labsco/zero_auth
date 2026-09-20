@@ -11,8 +11,10 @@ final auth = AuthManager(
   strategy: MyAuthStrategy(),     // how to talk to the backend / 如何与后端通信
   tokenStore: SecureTokenStore(), // where to persist tokens / 令牌持久化位置
   autoRefreshAhead: const Duration(minutes: 5), // proactive renewal / 主动续期
+  autoRefreshRetryDelay: const Duration(seconds: 30), // re-arm after a failed renewal / 续期失败后重新排程
   refreshFailurePolicy: defaultRefreshFailurePolicy, // sign-out rule / 登出规则
   clock: () => DateTime.now(),    // time source (tests, skew) / 时间源（测试、时钟偏移）
+  onStateChanged: (state) => debugPrint('$state'), // observe every emission / 观察每次状态
 );
 ```
 
@@ -21,6 +23,8 @@ final auth = AuthManager(
 | Backend endpoints & auth scheme | `AuthStrategy` | What `login`/`refresh`/… actually do / `login`/`refresh` 等的实际行为 |
 | Token persistence | `TokenStore` | Disk / secure storage / in-memory / 磁盘/安全存储/内存 |
 | Refresh timing | `AuthSession.expiresAt` + `autoRefreshAhead` | Proactive renewal is scheduled that far before expiry / 在过期前该时长调度主动续期 |
+| Renewal retry | `autoRefreshRetryDelay` | After a *proactive* renewal fails, it is re-armed this much later (default 30s) while a session still exists / 主动续期失败后按此时长重新排程（默认 30 秒），会话仍在才重试 |
+| Observation | `onStateChanged` | Optional callback for every emitted state, for logging or analytics / 可选回调，每次发出状态时触发，便于日志或埋点 |
 | Refresh failure handling | `refreshFailurePolicy` | Whether a failed refresh signs the user out / 刷新失败是否让用户登出 |
 | Time source | `clock` | Drives expiry maths and proactive scheduling; inject one for deterministic tests or to tolerate device clock skew / 驱动过期计算与主动刷新调度；注入时钟可实现确定性测试或容忍设备时钟偏移 |
 | Token injection | `AuthTokenSource` / `validAccessToken()` | How the bearer token reaches HTTP clients, optionally renewing an expired token first / 令牌如何到达 HTTP 客户端，必要时先续期过期令牌 |
