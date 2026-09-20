@@ -5,21 +5,23 @@
 ### 1. Implement `AuthStrategy` / 实现后端边界
 
 ```dart
-class MyAuthStrategy extends AuthStrategy {
+class MyAuthStrategy implements AuthStrategy {
   @override
-  Future<AuthSession> login(String username, String password) =>
-      myApi.login(username, password);
+  Future<AuthSession> login(Credentials credentials) => myApi.login(
+        credentials.username, // an email or phone works too
+        credentials.password,
+      );
 
   @override
-  Future<AuthSession> register(String username, String password) =>
-      myApi.register(username, password);
+  Future<AuthSession> register(RegistrationInput input) =>
+      myApi.register(input.username, input.password);
 
   @override
-  Future<void> logout(AuthSession session) => myApi.logout(session);
+  Future<void> logout(SessionHandle handle) => myApi.logout(handle.userId);
 
   @override
-  Future<AuthSession> refresh(AuthSession session) =>
-      myApi.refresh(session);
+  Future<AuthSession> refresh(RefreshToken token) =>
+      myApi.refresh(token.value);
 }
 ```
 

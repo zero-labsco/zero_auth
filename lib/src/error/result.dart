@@ -1,4 +1,5 @@
 import 'package:meta/meta.dart';
+import 'package:zero_auth/zero_auth.dart';
 
 /// An explicit success/failure wrapper.
 /// 显式的成功 / 失败包装。
@@ -58,11 +59,22 @@ final class Ok<T> extends Result<T> {
   int get hashCode => Object.hash('Ok', value);
 }
 
-/// Failed [Result] holding an [AppException].
-/// 持有 [AppException] 的失败 [Result]。
+/// Failed [Result] holding the failure.
+///
+/// [error] is typed as [Object] so a caller can wrap non-[AppException] causes;
+/// use [appException] when you specifically need the mapped domain error.
+/// 失败 [Result]，持有失败原因。
+///
+/// [error] 类型为 [Object]，以便包装非 [AppException] 的底层原因；需要映射后的
+/// 领域错误时请用 [appException]。
 final class Err<T> extends Result<T> {
   final Object error;
   const Err(this.error);
+
+  /// The failure as an [AppException], or `null` when it is not one.
+  /// 作为 [AppException] 的失败原因；不是该类型时为 `null`。
+  AppException? get appException =>
+      error is AppException ? error as AppException : null;
 
   @override
   T get getOrThrow => throw error;

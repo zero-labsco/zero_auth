@@ -251,7 +251,7 @@ flutter run
 
 | 成员 | 签名 | 说明 |
 |------|------|------|
-| 构造函数 | `AuthManager({required strategy, TokenStore? tokenStore, Duration? autoRefreshAhead, RefreshFailurePolicy? refreshFailurePolicy, DateTime Function()? clock})` | `tokenStore` 默认为 `InMemoryTokenStore`；`autoRefreshAhead` 开启主动续期；`clock` 覆盖时间源 |
+| 构造函数 | `AuthManager({required strategy, TokenStore? tokenStore, Duration? autoRefreshAhead, Duration? autoRefreshRetryDelay, RefreshFailurePolicy? refreshFailurePolicy, DateTime Function()? clock, void Function(AuthState)? onStateChanged})` | `tokenStore` 默认为 `InMemoryTokenStore`；`autoRefreshAhead` 开启主动续期、`autoRefreshRetryDelay` 在失败后重新排程；`clock` 覆盖时间源；`onStateChanged` 观察每次状态 |
 | `current` | `AuthState get current` | 最新状态，始终可读 |
 | `state` | `Stream<AuthState> get state` | 广播流，对新订阅者重放最新值 |
 | `currentSession` | `AuthSession? get currentSession` | 在 `Authenticated` **与** `Refreshing` 期间可用 |
@@ -263,7 +263,9 @@ flutter run
 | `refresh()` | `Future<AuthSession>` | 发出 `Refreshing`；单飞；失败时按 `refreshFailurePolicy` 处理 |
 | `validAccessToken()` | `Future<String?>` | 绝不返回过期令牌，必要时先续期 |
 | `logout()` | `Future<void>` | 发出 `LoggingOut`、尽力调用后端、清空存储，落到 `Unauthenticated` |
-| `dispose()` | `Future<void>` | 关闭状态流并取消主动刷新 |
+| `updateSession()` | `Future<Authenticated> updateSession(AuthSession Function(AuthSession))` | 无需重新登录即可替换活动会话；未登录时抛出 |
+| `supports<T>()` | `bool supports<T>()` | 策略是否实现了某个可选能力 |
+| `dispose()` | `Future<void>` | 关闭状态流并取消主动刷新；之后再操作会抛 `AuthException(code: 'manager_disposed')` |
 
 ### `AuthManagerGroup`（可选，多账号）
 
@@ -272,8 +274,9 @@ flutter run
 | 成员 | 说明 |
 |------|------|
 | 构造函数 | `AuthManagerGroup({required strategyFactory, required storeFactory})` —— 两者都会收到账号 id；请为每个账号提供独立的 `TokenStore` |
-| `forAccount(id)` | 惰性创建并缓存该账号的 `AuthManager` |
+| `forAccount(id)` / `addAccount(id)` | 惰性创建并缓存该账号的 `AuthManager` |
 | `switchTo(id)` | 激活某个账号，分组的 `state` 随之切换 |
+| `logoutAll()` | 一次性登出所有账号并全部遗忘 |
 | `current` / `state` / `currentSession` / `accessToken` | 反映激活账号 |
 | `restoreAll(ids, {activeId})` | 恢复所有账号，然后激活其中一个 |
 | `remove(id)` | 登出并移除某个账号 |
@@ -313,6 +316,7 @@ flutter run
 | `TokenStore` | 持久化边界：`save` / `load` / `clear`；内核自带 `InMemoryTokenStore` |
 | `AuthTokenSource` | 供网络层使用的只读令牌来源，`AuthManager` 即实现它 |
 | `Credentials`、`RegistrationInput`、`SessionHandle`、`RefreshToken` | 跨边界传递的值对象 |
+| `SupportsPasswordReset`、`SupportsPasswordChange`、`SupportsReauthentication` | 可选能力接口，用 `AuthManager.supports<T>()` 检测，从而保持四方法契约不变 |
 
 ### 错误
 

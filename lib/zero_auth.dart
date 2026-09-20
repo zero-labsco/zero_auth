@@ -13,6 +13,7 @@ library;
 export 'src/auth_state.dart';
 export 'src/auth_session.dart';
 export 'src/auth_strategy.dart';
+export 'src/auth_capabilities.dart';
 export 'src/token_store.dart';
 export 'src/auth_token_source.dart';
 export 'src/auth_manager.dart';

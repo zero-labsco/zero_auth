@@ -260,7 +260,7 @@ flutter run
 
 | Member | Signature | Notes |
 |--------|-----------|-------|
-| constructor | `AuthManager({required strategy, TokenStore? tokenStore, Duration? autoRefreshAhead, RefreshFailurePolicy? refreshFailurePolicy, DateTime Function()? clock})` | `tokenStore` defaults to `InMemoryTokenStore`; `autoRefreshAhead` enables proactive renewal; `clock` overrides the time source |
+| constructor | `AuthManager({required strategy, TokenStore? tokenStore, Duration? autoRefreshAhead, Duration? autoRefreshRetryDelay, RefreshFailurePolicy? refreshFailurePolicy, DateTime Function()? clock, void Function(AuthState)? onStateChanged})` | `tokenStore` defaults to `InMemoryTokenStore`; `autoRefreshAhead` enables proactive renewal and `autoRefreshRetryDelay` re-arms a failed one; `clock` overrides the time source; `onStateChanged` observes every emission |
 | `current` | `AuthState get current` | Latest state, always readable |
 | `state` | `Stream<AuthState> get state` | Broadcast, replays the latest value to new listeners |
 | `currentSession` | `AuthSession? get currentSession` | Available while `Authenticated` **and** `Refreshing` |
@@ -272,7 +272,9 @@ flutter run
 | `refresh()` | `Future<AuthSession>` | Emits `Refreshing`; single-flight; applies `refreshFailurePolicy` on failure |
 | `validAccessToken()` | `Future<String?>` | Never returns an expired token; renews first when needed |
 | `logout()` | `Future<void>` | Emits `LoggingOut`, best-effort backend call, clears the store, lands on `Unauthenticated` |
-| `dispose()` | `Future<void>` | Closes the stream and cancels proactive refresh |
+| `updateSession()` | `Future<Authenticated> updateSession(AuthSession Function(AuthSession))` | Replaces the active session without a re-login; throws when nothing is signed in |
+| `supports<T>()` | `bool supports<T>()` | Whether the strategy implements an optional capability |
+| `dispose()` | `Future<void>` | Closes the stream and cancels proactive refresh. Later operations throw `AuthException(code: 'manager_disposed')` |
 
 ### `AuthManagerGroup` (optional, multi-account)
 
@@ -282,8 +284,9 @@ single-session, so nothing changes unless you use this.
 | Member | Notes |
 |--------|-------|
 | constructor | `AuthManagerGroup({required strategyFactory, required storeFactory})` — both receive the account id; give each account its own `TokenStore` |
-| `forAccount(id)` | Lazily creates and caches that account's `AuthManager` |
+| `forAccount(id)` / `addAccount(id)` | Lazily creates and caches that account's `AuthManager` |
 | `switchTo(id)` | Makes an account active; the group's `state` follows it |
+| `logoutAll()` | Signs every account out and forgets them |
 | `current` / `state` / `currentSession` / `accessToken` | Mirror the active account |
 | `restoreAll(ids, {activeId})` | Restores every account, then activates one |
 | `remove(id)` | Signs out and forgets an account |
@@ -323,6 +326,7 @@ Helpers: `isAuthenticated` is `true` for `Authenticated` **and** `Refreshing`;
 | `TokenStore` | Persistence boundary: `save` / `load` / `clear`; `InMemoryTokenStore` ships in-core |
 | `AuthTokenSource` | Read-only token source for network layers; `AuthManager` implements it |
 | `Credentials`, `RegistrationInput`, `SessionHandle`, `RefreshToken` | Value objects passed across those boundaries |
+| `SupportsPasswordReset`, `SupportsPasswordChange`, `SupportsReauthentication` | Optional capability interfaces; detect with `AuthManager.supports<T>()` so the four-method contract stays intact |
 
 ### Errors
 

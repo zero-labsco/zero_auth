@@ -18,6 +18,48 @@ final class AuthInterceptor extends Interceptor {
   }
 }
 
+/// Retries a request once after a transparent refresh.
+///
+/// Use this when your backend rejects an expired token with 401 even though the
+/// client still believed the token was valid (for example the server revoked it
+/// early). It refreshes through the manager (single-flight) and replays the
+/// request exactly once, so a retry loop cannot form.
+final class AuthRetryInterceptor extends QueuedInterceptor {
+  AuthRetryInterceptor({required this.manager, required this.dio});
+
+  final AuthManager manager;
+  final Dio dio;
+
+  @override
+  void onError(DioException err, ErrorInterceptorHandler handler) async {
+    if (err.response?.statusCode != 401) {
+      handler.next(err);
+      return;
+    }
+
+    final options = err.requestOptions;
+    // Only one retry per request: a second 401 means refreshing did not help.
+    if (options.extra['retried'] == true) {
+      handler.next(err);
+      return;
+    }
+
+    try {
+      await manager.refresh();
+      final token = await manager.validAccessToken();
+      if (token == null) {
+        handler.next(err);
+        return;
+      }
+      options.headers['Authorization'] = 'Bearer $token';
+      options.extra['retried'] = true;
+      handler.resolve(await dio.fetch(options));
+    } on Object {
+      handler.next(err);
+    }
+  }
+}
+
 /// Variant that never sends an expired token: when the session has expired it
 /// transparently renews it through [AuthManager.validAccessToken] (which reuses
 /// the single-flight refresh) before attaching the header.

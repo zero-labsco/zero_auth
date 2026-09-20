@@ -79,6 +79,23 @@ final class AuthManagerGroup implements AuthTokenSource {
         ),
       );
 
+  /// Explicitly registers an account and returns its manager.
+  ///
+  /// Identical to [forAccount]; it exists so call sites that *mean* "add" read
+  /// that way.
+  /// 显式注册一个账号并返回其管理器。
+  ///
+  /// 与 [forAccount] 等价；存在它是为了让「新增」这种意图在调用点读起来更明确。
+  AuthManager addAccount(String accountId) => forAccount(accountId);
+
+  /// Signs every account out and forgets them all.
+  /// 登出所有账号并全部遗忘。
+  Future<void> logoutAll() async {
+    for (final id in _managers.keys.toList()) {
+      await remove(id);
+    }
+  }
+
   /// Makes [accountId] the active account.
   ///
   /// The group's [state] stream switches to that manager and replays its

@@ -26,14 +26,21 @@ final class RefreshToken {
 final class SessionHandle {
   final String userId;
 
-  const SessionHandle({required this.userId});
+  /// Present when the session carries one, so backends that revoke by refresh
+  /// token can still act when [userId] is empty.
+  /// 会话携带刷新令牌时可用；这样即使 [userId] 为空，按令牌吊销的后端也能处理。
+  final RefreshToken? refreshToken;
+
+  const SessionHandle({required this.userId, this.refreshToken});
 
   @override
   bool operator ==(Object other) =>
-      other is SessionHandle && other.userId == userId;
+      other is SessionHandle &&
+      other.userId == userId &&
+      other.refreshToken == refreshToken;
 
   @override
-  int get hashCode => userId.hashCode;
+  int get hashCode => Object.hash(userId, refreshToken);
 }
 
 /// The active session: tokens, expiry, identity and raw claims.
@@ -103,9 +110,42 @@ final class AuthSession {
       other.refreshToken == refreshToken &&
       other.expiresAt == expiresAt &&
       other.userId == userId &&
-      other.displayName == displayName;
+      other.displayName == displayName &&
+      _claimsEqual(other.claims, claims);
 
   @override
-  int get hashCode =>
-      Object.hash(accessToken, refreshToken, expiresAt, userId, displayName);
+  int get hashCode => Object.hash(
+        accessToken,
+        refreshToken,
+        expiresAt,
+        userId,
+        displayName,
+        _claimsHash(claims),
+      );
+
+  /// Claims participate in equality so a session whose *only* change is in
+  /// `claims` still counts as new — otherwise a state emission could be
+  /// suppressed as a duplicate.
+  /// claims 参与相等性比较，这样仅 claims 发生变化的会话也算新值，
+  /// 否则该次状态通知会被当作重复值抑制。
+  static bool _claimsEqual(Map<String, Object?>? a, Map<String, Object?>? b) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null) return a == null && b == null;
+    if (a.length != b.length) return false;
+    for (final entry in a.entries) {
+      if (!b.containsKey(entry.key) || b[entry.key] != entry.value) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  static int _claimsHash(Map<String, Object?>? claims) {
+    if (claims == null) return 0;
+    var hash = 0;
+    for (final entry in claims.entries) {
+      hash ^= Object.hash(entry.key, entry.value);
+    }
+    return hash;
+  }
 }

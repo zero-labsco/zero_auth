@@ -2,6 +2,55 @@
 
 ## 0.4.0
 
+### Fixed / 修复
+
+- **`restore()` no longer resurrects a session after a logout.** It now takes part
+  in the same epoch guard as `login` / `refresh`, so a session loaded from a slow
+  `TokenStore` cannot be activated after the user signed out.
+  - **`restore()` 不再在登出后「复活」会话。** 它现在与 `login` / `refresh` 一样参与
+    epoch 守卫，慢速 `TokenStore` 读出的会话无法在用户登出后被激活。
+- **Local logout always completes.** A failing `TokenStore.clear()` used to leave
+  the manager stuck in `LoggingOut`; the store error is now reported *after*
+  `Unauthenticated` is emitted.
+  - **本地登出必定完成。** 过去 `TokenStore.clear()` 出错会让管理器卡在 `LoggingOut`；
+    现在先发出 `Unauthenticated`，再上报存储错误。
+- **A `TokenStore.load()` failure is treated as "no session"**, matching the
+  documented behaviour, instead of escaping without any state change.
+  - **`TokenStore.load()` 失败按「无会话」处理**（与文档一致），不再无声抛出。
+- **Dropping an unrenewable session now reports why**: `AuthError` is emitted
+  before `Unauthenticated`, so a UI can tell "never signed in" apart from
+  "session expired".
+  - **丢弃无法续期的会话会先说明原因**：先发 `AuthError` 再发 `Unauthenticated`，
+    界面可区分「从未登录」与「会话过期」。
+- **`AuthSession` equality now includes `claims`**, so a session whose only change
+  is in `claims` is no longer swallowed by the duplicate-emission filter.
+  - **`AuthSession` 相等性现在包含 `claims`**，仅 claims 变化的会话不再被去重逻辑吞掉。
+- **Overlapping authentication flows are rejected** (`auth_flow_in_progress`)
+  instead of racing to overwrite the session.
+  - **重叠的登录流程会被拒绝**（`auth_flow_in_progress`），不再争抢覆盖会话。
+- **`Err.appException`** exposes the mapped domain error; the `error` field stays
+  `Object` and its docs no longer over-promise `AppException`.
+  - **新增 `Err.appException`** 暴露映射后的领域错误；`error` 仍为 `Object`，文档不再
+    过度承诺。
+- Docs: the `AuthStrategy` contract shown on the site used pre-0.3.0 signatures
+  (`login(String, String)`). It now matches the real API.
+  - 文档：站上展示的 `AuthStrategy` 契约仍是 0.3.0 之前的签名（`login(String, String)`），
+    现已与真实 API 一致。
+
+### Changed / 变更
+
+- **Operations after `dispose()` throw** `AuthException(code: 'manager_disposed')`
+  instead of silently doing nothing.
+  - **`dispose()` 之后的操作会抛出** `AuthException(code: 'manager_disposed')`，
+    而非静默无作为。
+- **A failed proactive refresh is re-armed** after `autoRefreshRetryDelay`
+  (default 30s) while a session still exists, so a transient error no longer stops
+  renewal silently.
+  - **主动刷新失败后会重新排程**（`autoRefreshRetryDelay`，默认 30 秒），只要会话仍在，
+    瞬时错误就不会让续期默默停止。
+- `SessionHandle` carries an optional `refreshToken` in addition to `userId`.
+  - `SessionHandle` 除 `userId` 外还携带可选的 `refreshToken`。
+
 ### Added / 新增
 
 - **`AuthManagerGroup`** — an optional coordination layer that keeps one
@@ -20,6 +69,32 @@
   different questions. Existing code keeps working unchanged; nothing to migrate.
   - 多账号被刻意设计为**可选**：`AuthManager` 仍是单会话，因为「谁登录了？」与
     「这些账号里哪个是激活的？」是两个不同的问题。现有代码无需任何改动。
+
+- **`updateSession(...)`** — replaces the active session without a re-login, for
+  profile updates or refreshed claims. Throws `NoActiveSessionException` when
+  nothing is signed in.
+  - **`updateSession(...)`**——在不重新登录的情况下替换活动会话，用于资料更新或刷新
+    claims。未登录时抛出 `NoActiveSessionException`。
+- **Optional capability interfaces** — `SupportsPasswordReset`,
+  `SupportsPasswordChange` and `SupportsReauthentication`, detected with
+  `AuthManager.supports<T>()` so the four-method contract stays intact.
+  - **可选能力接口**——`SupportsPasswordReset`、`SupportsPasswordChange`、
+    `SupportsReauthentication`，可用 `AuthManager.supports<T>()` 检测，从而保持
+    四方法契约不变。
+- **`onStateChanged`** — optional callback invoked for every emitted state, for
+  logging or analytics without subscribing to the stream.
+  - **`onStateChanged`**——可选回调，每次发出状态时触发，便于无需订阅流即可做日志或埋点。
+- **`autoRefreshRetryDelay`** — constructor knob controlling how soon a failed
+  proactive renewal is re-armed (default 30s).
+  - **`autoRefreshRetryDelay`**——构造参数，控制主动续期失败后多久重新排程（默认 30 秒）。
+- **`AuthManagerGroup.addAccount`** and **`logoutAll()`** — explicit registration
+  and signing out every account at once.
+  - **`AuthManagerGroup.addAccount`** 与 **`logoutAll()`**——显式注册账号，以及一次性
+    登出所有账号。
+- Example: **`AuthRetryInterceptor`** — retries a request once after a transparent
+  refresh, for backends that return 401 on an early-revoked token.
+  - 示例：新增 **`AuthRetryInterceptor`**——在透明续期后重试一次请求，适用于令牌被提前
+    吊销时返回 401 的后端。
 
 ### Docs / 文档
 
