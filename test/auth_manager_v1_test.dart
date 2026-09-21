@@ -44,8 +44,8 @@ final class _FailingStore implements TokenStore {
     this.failSaveAfter = 0,
     this.failClear = false,
     AuthSession? initial,
-  }) : value = initial,
-       _allowedSaves = failSaveAfter;
+  })  : value = initial,
+        _allowedSaves = failSaveAfter;
 
   final int failSaveAfter;
   final bool failClear;
@@ -167,10 +167,10 @@ final class _ShortTtlStrategy implements AuthStrategy {
   }
 
   AuthSession _issue() => AuthSession(
-    accessToken: 'access-$refreshCount',
-    refreshToken: const RefreshToken('refresh'),
-    expiresAt: DateTime.now().add(const Duration(milliseconds: 300)),
-  );
+        accessToken: 'access-$refreshCount',
+        refreshToken: const RefreshToken('refresh'),
+        expiresAt: DateTime.now().add(const Duration(milliseconds: 300)),
+      );
 }
 
 /// A strategy that keeps handing out sessions that are already due, to prove the
@@ -197,10 +197,10 @@ final class _ShortLivedStrategy implements AuthStrategy {
   }
 
   AuthSession _issued() => AuthSession(
-    accessToken: 'access-$refreshCount',
-    refreshToken: const RefreshToken('refresh'),
-    expiresAt: clock().add(const Duration(seconds: 1)),
-  );
+        accessToken: 'access-$refreshCount',
+        refreshToken: const RefreshToken('refresh'),
+        expiresAt: clock().add(const Duration(seconds: 1)),
+      );
 }
 
 final class _StaticTokenSource implements AuthTokenSource {
@@ -219,14 +219,15 @@ AuthSession _session(
   String? userId,
   String? displayName,
   Map<String, Object?>? claims,
-}) => AuthSession(
-  accessToken: token,
-  refreshToken: const RefreshToken('refresh'),
-  expiresAt: expiresAt,
-  userId: userId,
-  displayName: displayName,
-  claims: claims,
-);
+}) =>
+    AuthSession(
+      accessToken: token,
+      refreshToken: const RefreshToken('refresh'),
+      expiresAt: expiresAt,
+      userId: userId,
+      displayName: displayName,
+      claims: claims,
+    );
 
 const _credentials = Credentials(username: 'user', password: 'user');
 
@@ -422,7 +423,8 @@ void main() {
       expect(manager.currentSession?.accessToken, 'login-1');
     });
 
-    test('a new refresh does not join one started in a previous epoch', () async {
+    test('a new refresh does not join one started in a previous epoch',
+        () async {
       final gate = Completer<AuthSession>();
       final strategy = _GatedStrategy(
         gate: gate,

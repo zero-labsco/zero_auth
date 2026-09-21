@@ -33,9 +33,9 @@ final class TokenService {
     required String secret,
     Duration clockSkew = const Duration(seconds: 1),
     Random? random,
-  }) : _secret = utf8.encode(secret),
-       _clockSkew = clockSkew,
-       _random = random ?? Random.secure();
+  })  : _secret = utf8.encode(secret),
+        _clockSkew = clockSkew,
+        _random = random ?? Random.secure();
 
   final List<int> _secret;
   final Duration _clockSkew;
