@@ -63,6 +63,25 @@ jobs:
           flutter-version: '3.41.7'
           cache: true
 
+      - name: Install package dependencies
+        # REQUIRED before `dart format`: the formatter derives each file's
+        # language version from .dart_tool/package_config.json. Without it the
+        # formatter falls back to the pubspec lower bound (3.4) and emits the OLD
+        # style, while CI — which runs `pub get` first — expects the NEW one. That
+        # mismatch is what made this bot and CI overwrite each other forever.
+        # `dart format` 之前必需：格式化器依据 .dart_tool/package_config.json 决定每个
+        # 文件的语言版本。缺失时会回退到 pubspec 下界（3.4）并输出旧风格，而先执行了
+        # `pub get` 的 CI 期望新风格 —— 正是这个差异让 bot 与 CI 长期互相覆盖。
+        run: dart pub get
+
+      - name: Install example dependencies
+        working-directory: example
+        run: flutter pub get
+
+      - name: Install demo backend dependencies
+        working-directory: server
+        run: dart pub get
+
       - name: Format package
         run: dart format .
 
