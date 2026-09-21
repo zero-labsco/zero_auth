@@ -13,11 +13,11 @@ final class ExtendingAuthStrategy implements AuthStrategy {
   int refreshCount = 0;
 
   AuthSession _session(DateTime expiresAt) => AuthSession(
-        accessToken: 'access',
-        refreshToken: const RefreshToken('refresh'),
-        expiresAt: expiresAt,
-        userId: 'u1',
-      );
+    accessToken: 'access',
+    refreshToken: const RefreshToken('refresh'),
+    expiresAt: expiresAt,
+    userId: 'u1',
+  );
 
   @override
   Future<AuthSession> login(Credentials credentials) async =>

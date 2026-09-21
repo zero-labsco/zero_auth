@@ -49,6 +49,13 @@ final group = AuthManagerGroup(
   // CRITICAL: one store per account, so persisted sessions stay isolated.
   // 关键：每个账号一个存储，持久化会话才不会互相覆盖。
   storeFactory: (accountId) => SecureTokenStore(key: 'auth_$accountId'),
+  // Optional: every AuthManager knob is forwarded to the managers it creates.
+  // 可选：所有 AuthManager 调参都会转发给它创建的管理器。
+  autoRefreshAhead: const Duration(minutes: 5),
+  clockSkew: const Duration(seconds: 30),
+  onStateChanged: (accountId, state) => debugPrint('$accountId → $state'),
+  // Or build them yourself / 也可自行构建：
+  // managerFactory: (id, strategy, store) => AuthManager(...),
 );
 
 // Sign in (or restore) each account independently.
@@ -75,8 +82,11 @@ group.current            // active account's AuthState / 激活账号的状态
 group.currentSession     // active account's session / 激活账号的会话
 group.accessToken        // active account's token / 激活账号的令牌
 group.state              // stream that follows the active account / 跟随激活账号的流
+group.activeIdChanges    // stream of the active account id / 激活账号 id 的流
 
-dio.interceptors.add(AuthInterceptor(group)); // reads the active token / 读激活账号令牌
+await group.validAccessToken(); // renewed token of the active account / 激活账号续期后的令牌
+
+dio.interceptors.add(RefreshingAuthInterceptor(group)); // renews then attaches / 先续期再附加
 ```
 
 ### Restoring on startup / 启动时恢复
@@ -86,6 +96,11 @@ dio.interceptors.add(AuthInterceptor(group)); // reads the active token / 读激
 // `knownIds` 来自你自己保存的账号列表。
 await group.restoreAll(knownIds, activeId: lastUsedId);
 ```
+
+One account failing to restore does not abandon the rest: every account is
+attempted and the first error is thrown at the end.
+
+某个账号恢复失败不会连累其余账号：所有账号都会被尝试，最后统一抛出第一个错误。
 
 ### Adding accounts explicitly / 显式新增账号
 

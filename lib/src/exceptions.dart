@@ -15,12 +15,12 @@ class AuthException extends AppException {
   final AuthFail fail;
 
   AuthException.fromFail(this.fail)
-      : super(fail.message, code: fail.code, cause: fail.cause);
+    : super(fail.message, code: fail.code, cause: fail.cause);
 
   /// Convenience constructor for manager-internal failures.
   /// 供管理器内部失败使用的便捷构造。
   AuthException(String message, {String? code, Object? cause})
-      : this.fromFail(AuthFail(message, code: code, cause: cause));
+    : this.fromFail(AuthFail(message, code: code, cause: cause));
 }
 
 /// Credentials were rejected by the backend (wrong password, unknown user…).
@@ -38,7 +38,7 @@ final class InvalidCredentialsException extends AuthException {
 /// 授权已不可用：会话 / 刷新令牌 / 访问令牌已过期或被吊销，只能重新登录。
 final class SessionExpiredException extends AuthException {
   SessionExpiredException({String message = 'Session expired', Object? cause})
-      : super(message, code: 'session_expired', cause: cause);
+    : super(message, code: 'session_expired', cause: cause);
 }
 
 /// An operation that requires an active session was called with none.
@@ -71,13 +71,13 @@ final class UnexpectedAuthException extends AuthException {
 
 /// Maps a caught failure into the most specific [AuthException] subclass.
 ///
-/// Strategy authors opt in by throwing an [AuthException] carrying one of the
-/// codes below; anything unrecognised is preserved, or wrapped as
-/// [UnexpectedAuthException].
+/// Strategy authors opt in by throwing an [AuthException] **or** an [AuthFail]
+/// carrying one of the codes below; anything unrecognised is preserved, or
+/// wrapped as [UnexpectedAuthException].
 /// 将捕获的失败映射为最具体的 [AuthException] 子类。
 ///
-/// 策略实现者可抛出携带下列 code 的 [AuthException] 来参与映射；无法识别的错误会被
-/// 原样保留，或包装为 [UnexpectedAuthException]。
+/// 策略实现者可抛出携带下列 code 的 [AuthException] **或** [AuthFail] 来参与映射；
+/// 无法识别的错误会被原样保留，或包装为 [UnexpectedAuthException]。
 ///
 /// | code | mapped type / 映射结果 |
 /// |---|---|
@@ -87,33 +87,33 @@ final class UnexpectedAuthException extends AuthException {
 /// | `refresh_token_missing` | [RefreshTokenMissingException] |
 /// | anything else / 其他 | preserved as-is, or [UnexpectedAuthException] / 原样保留或包装 |
 AuthException mapAuthFailure(Object error) {
-  if (error is AppException) {
-    final cause = error.cause ?? error;
-    switch (error.code) {
-      case 'invalid_credentials':
-        return InvalidCredentialsException(
-          message: error.message,
-          cause: cause,
-        );
-      case 'invalid_grant':
-      case 'invalid_refresh_token':
-      case 'token_expired':
-      case 'session_expired':
-        return SessionExpiredException(message: error.message, cause: cause);
-      case 'no_active_session':
-        return NoActiveSessionException(message: error.message, cause: cause);
-      case 'refresh_token_missing':
-        return RefreshTokenMissingException(
-          message: error.message,
-          cause: cause,
-        );
-      default:
-        // Unclassifiable: keep whatever vocabulary the author already threw.
-        // 无法归类：保留作者原本抛出的错误类型。
-        return error is AuthException
-            ? error
-            : UnexpectedAuthException(message: error.message, cause: cause);
-    }
+  final appError = error is AppException ? error : null;
+  final fail = error is AuthFail ? error : null;
+  if (appError == null && fail == null) {
+    return UnexpectedAuthException(cause: error);
   }
-  return UnexpectedAuthException(cause: error);
+
+  final code = appError?.code ?? fail?.code;
+  final message = appError?.message ?? fail!.message;
+  final cause = appError?.cause ?? fail?.cause ?? error;
+
+  switch (code) {
+    case 'invalid_credentials':
+      return InvalidCredentialsException(message: message, cause: cause);
+    case 'invalid_grant':
+    case 'invalid_refresh_token':
+    case 'token_expired':
+    case 'session_expired':
+      return SessionExpiredException(message: message, cause: cause);
+    case 'no_active_session':
+      return NoActiveSessionException(message: message, cause: cause);
+    case 'refresh_token_missing':
+      return RefreshTokenMissingException(message: message, cause: cause);
+    default:
+      // Unclassifiable: keep whatever vocabulary the author already threw.
+      // 无法归类：保留作者原本抛出的错误类型。
+      return error is AuthException
+          ? error
+          : UnexpectedAuthException(message: message, cause: cause);
+  }
 }

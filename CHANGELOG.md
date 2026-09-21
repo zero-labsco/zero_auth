@@ -1,5 +1,130 @@
 # Changelog
 
+## 1.0.0
+
+**First stable release / 首个稳定版本.** From here on the public surface follows
+strict semver: a `1.x` release never breaks it, and every new symbol is additive.
+从本版本起，公共 API 严格遵循语义化版本：`1.x` 绝不做破坏性变更，新增能力一律以
+追加方式提供。
+
+### Fixed / 修复
+
+- **`restore()` no longer signs the user out on a transient renewal failure.**
+  An expired persisted session plus a network hiccup used to clear the store and
+  land on `Unauthenticated` — the opposite of what `refreshFailurePolicy` promises.
+  A transient failure now keeps the persisted session so the next call can retry;
+  only a terminal one clears it.
+  - **`restore()` 不再因瞬时续期失败而让用户登出。** 过去「持久化会话已过期 + 网络抖动」
+    会清空存储并落到 `Unauthenticated`，与 `refreshFailurePolicy` 的承诺正好相反。现在
+    瞬时失败会保留持久化会话以便下次重试，只有终局失败才会清空。
+- **A late refresh can no longer overwrite a newer session.** `login`, `register`,
+  `loginWith` and `updateSession` now join the epoch guard, so a renewal started
+  before them is aborted instead of replacing the session they just installed (or
+  writing a token minted from an already-rotated refresh token).
+  - **迟到的刷新再也无法覆盖更新的会话。** `login`、`register`、`loginWith` 与
+    `updateSession` 现在都参与 epoch 守卫：在它们之前启动的续期会被中止，而不是替换
+    刚安装的会话（也不会写回由已轮换的刷新令牌换来的令牌）。
+- **A renewal no longer erases who is signed in.** Backends that return tokens only
+  used to drop `userId` / `displayName` / `claims` — which also emptied the
+  `SessionHandle.userId` sent on logout. The identity now carries over.
+  - **续期不再抹掉「谁在登录」。** 只返回令牌的后端过去会丢失 `userId` / `displayName` /
+    `claims`，连带让登出时发送的 `SessionHandle.userId` 变空。现在身份字段会被保留。
+- **`mapAuthFailure` honours the `code` of a bare `AuthFail`.** Throwing the
+  documented domain failure type no longer flattens every case into
+  `UnexpectedAuthException`.
+  - **`mapAuthFailure` 现在认得裸 `AuthFail` 的 `code`。** 抛出文档推荐的领域失败类型，
+    不再把所有情况都压成 `UnexpectedAuthException`。
+- **`claims` are compared structurally.** Nested maps and lists participate in
+  equality (and hashing), so a change buried inside `claims` is no longer swallowed
+  by the duplicate-emission filter.
+  - **`claims` 改为结构化比较。** 嵌套的 Map / List 参与相等性与哈希比较，藏在
+    `claims` 内部的变化不再被去重逻辑吞掉。
+- **An already-due proactive renewal is throttled** by `autoRefreshMinInterval`
+  (default 5s), so a backend handing out very short-lived tokens cannot turn
+  renewal into a tight loop.
+  - **「已到期」的主动续期现在有节流**（`autoRefreshMinInterval`，默认 5 秒），后端持续
+    发放极短寿命的令牌时不会把续期变成紧密循环。
+- **Concurrent `restore()` calls share one attempt**, instead of racing to load and
+  activate two sessions.
+  - **并发的 `restore()` 共享同一次尝试**，不再争抢读取并激活两个会话。
+- **Dropping an unrenewable session completes even when the store fails**: the
+  sign-out happens first and the store error is reported afterwards.
+  - **丢弃无法续期的会话在存储出错时也能完成**：先完成登出，再上报存储错误。
+- **A throwing `onStateChanged` observer can no longer corrupt the state machine.**
+  The observer is a side channel, so its error is swallowed after the state has
+  already been emitted to the stream.
+  - **抛异常的 `onStateChanged` 观察者再也不会破坏状态机。** 观察者只是旁路，状态已发
+    到流上之后，它的异常会被吞掉。
+- **`AuthManagerGroup` forgets a manager disposed outside the group**, instead of
+  silently keeping a released manager as the active one.
+  - **`AuthManagerGroup` 会遗忘在分组之外被释放的管理器**，不再把已释放的管理器悄悄
+    当作激活账号。
+
+### Changed / 变更
+
+- **BREAKING: `AuthTokenSource` gained `validAccessToken({Duration? leeway})`.**
+  Implementations that only declare `accessToken` must add one line:
+  `@override Future<String?> validAccessToken({Duration? leeway}) async => accessToken;`.
+  `AuthManager` (and `AuthManagerGroup`) override it with a renewing version, so
+  network layers can now guarantee an unexpired token through the interface alone.
+  - **破坏性：`AuthTokenSource` 新增 `validAccessToken({Duration? leeway})`。** 只声明
+    `accessToken` 的实现需补一行：`@override Future<String?> validAccessToken({Duration? leeway}) async => accessToken;`。
+    `AuthManager`（与 `AuthManagerGroup`）会覆写为会续期的版本，因此网络层仅凭接口就能
+    拿到保证未过期的令牌。
+- **`clockSkew` defaults to 30 seconds.** Tokens are treated as expired that much
+  earlier, so a device clock running ahead (or a slow request) cannot hand out a
+  token that dies in flight. Pass `Duration.zero` for the old behaviour.
+  - **`clockSkew` 默认为 30 秒。** 令牌会提前这么多被视为过期，避免设备时钟偏快（或请求
+    较慢）时发出一个途中失效的令牌。传 `Duration.zero` 可恢复旧行为。
+- **A single-flight refresh is only joined within the same epoch.** Concurrent
+  callers still share one backend call, but never one that started before the
+  session was replaced.
+  - **单飞刷新只在同一 epoch 内被共享。** 并发调用方仍共享同一次后端调用，但不会共享
+    会话被替换之前启动的那一次。
+- `logout()` invalidates in-flight work **before** calling the backend, so a
+  renewal that lands mid-logout can no longer flash `Authenticated`.
+  - `logout()` 在调用后端**之前**就让进行中的工作失效，登出途中落地的续期不会再闪一下
+    `Authenticated`。
+
+### Added / 新增
+
+- **`clockSkew`** — how much earlier a token counts as expired (default 30s), plus
+  **`validAccessToken(leeway:)`** for a per-call override.
+  - **`clockSkew`** —— 提前多久把令牌视为过期（默认 30 秒）；另有
+    **`validAccessToken(leeway:)`** 供单次调用覆盖。
+- **`autoRefreshMinInterval`** — floor for a proactive renewal that is already due
+  (default 5s).
+  - **`autoRefreshMinInterval`** —— 「已到期」主动续期的最小等待（默认 5 秒）。
+- **`preserveSessionDetails`** — carry identity fields across a renewal that only
+  returns tokens (default `true`; set `false` to keep the backend answer verbatim).
+  - **`preserveSessionDetails`** —— 在只返回令牌的续期中保留身份字段（默认 `true`；
+    设为 `false` 则原样使用后端响应）。
+- **`AuthSession.tryFromJson`** — deserialize without throwing on malformed input;
+  returns `null` instead. Use it for anything read from disk or secure storage.
+  - **`AuthSession.tryFromJson`** —— 反序列化畸形数据时不抛异常，而是返回 `null`。
+    凡是从磁盘或安全存储读出的内容都建议用它。
+- **`AuthState.session`** — the session carried by `Authenticated` / `Refreshing` /
+  `LoggingOut`, or `null`; no pattern-matching needed for the common case.
+  - **`AuthState.session`** —— `Authenticated` / `Refreshing` / `LoggingOut` 携带的
+    会话（无则为 `null`），常见场景无需再做模式匹配。
+- **`AuthManagerGroup`**: `managerFactory`, full forwarding of the manager knobs
+  (`autoRefreshAhead`, `clockSkew`, `refreshFailurePolicy`, `clock`…), an
+  account-tagged `onStateChanged`, **`activeIdChanges`** (a stream of the active
+  account id), `validAccessToken()` and a `restoreAll()` that keeps going when one
+  account fails.
+  - **`AuthManagerGroup`**：新增 `managerFactory`、完整转发管理器调参（`autoRefreshAhead`、
+    `clockSkew`、`refreshFailurePolicy`、`clock`……）、带账号标记的 `onStateChanged`、
+    **`activeIdChanges`**（激活账号 id 流）、`validAccessToken()`，以及某个账号失败也会
+    继续的 `restoreAll()`。
+
+### Stability / 稳定性
+
+- The public surface is now frozen under semver: `AuthState` stays sealed with its
+  current six subtypes, `AuthStrategy` stays at four methods, and new capabilities
+  arrive as additive symbols (or optional interfaces detected with `supports<T>()`).
+  - 公共 API 自此按 semver 冻结：`AuthState` 保持当前六个子类的密封层级，`AuthStrategy`
+    保持四个方法，新能力以追加符号（或可用 `supports<T>()` 检测的可选接口）的形式提供。
+
 ## 0.5.0
 
 ### Fixed / 修复

@@ -93,16 +93,15 @@ void main() {
     String token = 'access',
     String name = 'user@demo',
     bool expired = false,
-  }) =>
-      AuthSession(
-        accessToken: token,
-        refreshToken: const RefreshToken('refresh'),
-        expiresAt: expired
-            ? now.subtract(const Duration(minutes: 1))
-            : now.add(const Duration(minutes: 5)),
-        userId: 'user',
-        displayName: name,
-      );
+  }) => AuthSession(
+    accessToken: token,
+    refreshToken: const RefreshToken('refresh'),
+    expiresAt: expired
+        ? now.subtract(const Duration(minutes: 1))
+        : now.add(const Duration(minutes: 5)),
+    userId: 'user',
+    displayName: name,
+  );
 
   group('restore hardening', () {
     test('a logout during restore does not resurrect the session', () async {

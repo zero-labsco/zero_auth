@@ -16,9 +16,9 @@ A backend-agnostic auth state machine & session lifecycle core for Dart/Flutter.
 | **Typed Session** | `AuthSession` carries access/refresh tokens, expiry (`isExpired`), user id, display name and raw claims / 强类型会话，无需手工解析令牌 |
 | **Unified Errors** | Every failure maps to `AppException` (`AuthException` for auth cases) or a `Result<T>` wrapper; raw exceptions never cross the public surface / 统一异常与结果，裸异常不越界 |
 | **Network Integration** | `AuthManager` itself is an `AuthTokenSource`, so a Dio interceptor can attach `Authorization: Bearer` without depending on the manager / 管理器即令牌源，Dio 拦截器零依赖附加令牌 |
-| **Session Serialization** | `AuthSession.toJson` / `fromJson` make persistence a one-liner; a file-based reference store ships for server/CLI / `AuthSession.toJson` / `fromJson` 让持久化一行搞定，并附带面向服务端 / CLI 的文件参考存储 |
+| **Session Serialization** | `AuthSession.toJson` / `fromJson` make persistence a one-liner, and `tryFromJson` returns `null` on malformed data; a file-based reference store ships for server/CLI / `AuthSession.toJson` / `fromJson` 让持久化一行搞定，`tryFromJson` 遇畸形数据返回 `null`，并附带面向服务端 / CLI 的文件参考存储 |
 | **Proactive Auto-refresh** | Pass `autoRefreshAhead` to renew tokens before expiry (single-flight) / 传入 `autoRefreshAhead` 在过期前自动续期（单飞） |
-| **Never an Expired Token** | `validAccessToken()` renews first when the token has expired, so interceptors never send a dead bearer token / 令牌过期时先续期，拦截器不会发出失效令牌 |
+| **Never an Expired Token** | `validAccessToken()` renews first when the token has expired — or is about to, per `clockSkew` — so interceptors never send a dead bearer token / 令牌过期（或按 `clockSkew` 即将过期）时先续期，拦截器不会发出失效令牌 |
 | **Bring Your Own Login** | `loginWith` adopts a session from any flow you drive: third-party OAuth, magic links, passkeys / `loginWith` 可接纳第三方 OAuth、魔法链接、Passkey 等自定义流程 |
 | **Typed Auth Exceptions** | `InvalidCredentialsException`, `SessionExpiredException` and friends, mapped from your strategy's `code` / `InvalidCredentialsException`、`SessionExpiredException` 等，由策略的 `code` 映射而来 |
 | **Configurable Failure Policy** | `refreshFailurePolicy` decides whether a failed refresh signs the user out / `refreshFailurePolicy` 决定刷新失败是否登出 |

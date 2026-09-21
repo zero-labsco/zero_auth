@@ -1,0 +1,28 @@
+# The demo backend is a standalone package, so it must not inherit the root
+# options: those `include: package:flutter_lints/flutter.yaml`, which is not a
+# dependency here (resolving it fails and floods every `dart` command with a
+# package-resolution warning). The rules below mirror the root set, minus the
+# Flutter-only ones.
+# 演示后端是独立 package，因此不能继承根目录配置：根配置
+# `include: package:flutter_lints/flutter.yaml`，而本包并未依赖它（解析失败会让每条
+# `dart` 命令都刷一遍包解析告警）。下面的规则与根包保持一致，去掉了仅 Flutter 适用的项。
+
+analyzer:
+  language:
+    strict-casts: true
+    strict-raw-types: true
+
+linter:
+  rules:
+    - always_declare_return_types
+    - annotate_overrides
+    - avoid_empty_else
+    - avoid_relative_lib_imports
+    - avoid_returning_this
+    - avoid_types_on_closure_parameters
+    - curly_braces_in_flow_control_structures
+    - prefer_single_quotes
+    - require_trailing_commas
+    - unawaited_futures
+    - use_rethrow_when_possible
+    - void_checks

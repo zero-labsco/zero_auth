@@ -21,7 +21,7 @@ This file defines the architecture, coding conventions, and required workflows f
   - `auth_manager_group.dart` — `AuthManagerGroup`: optional multi-account coordination. Owns one `AuthManager` per account (`forAccount` / `addAccount` / `switchTo` / `restoreAll` / `remove` / `logoutAll` / `disposeAll`); implements `AuthTokenSource` for the active account. `AuthManager` itself stays single-session on purpose.
   - `auth_capabilities.dart` — optional capability interfaces (`SupportsPasswordReset`, `SupportsPasswordChange`, `SupportsReauthentication`) detected via `AuthManager.supports<T>()`, so the four-method `AuthStrategy` contract never has to grow.
   - `token_store.dart` — `TokenStore` (the only persistence boundary) + `InMemoryTokenStore`.
-  - `auth_token_source.dart` — `AuthTokenSource`: read-only token source for network layers.
+  - `auth_token_source.dart` — `AuthTokenSource`: read-only token source for network layers (`accessToken`, plus `validAccessToken({leeway})` which renews first when a manager backs the source).
   - `exceptions.dart` — `AuthException` (auth-specific failures).
   - `error/` — the error kernel: `app_exception.dart` (`AppException`), `result.dart` (`Result<T>` = `Ok` / `Err`), `error.dart` (barrel).
 - `test/` — unit tests written with `package:test` (NOT `flutter_test`); `fake_async` is used for timer-driven refresh behaviour; `fake_strategy.dart` is the shared test double.
@@ -34,7 +34,9 @@ This file defines the architecture, coding conventions, and required workflows f
 - **Pure Dart only.** No `dart:io`, no `dart:html`/`package:web`, no platform channels, no Flutter widgets, no HTTP client. It must run unchanged on Flutter, server and CLI.
 - **No hidden state.** The manager holds no UI, no backend and no native code; every side effect goes through `AuthStrategy` or `TokenStore`.
 - **Errors never escape raw.** Every failure surfaced publicly is an `AppException` (typically `AuthException`); raw `Exception`s must not cross the public surface.
-- **Single-flight refresh.** Concurrent `refresh()` callers must keep sharing one backend call (`_refreshCompleter`); do not "simplify" it into independent calls.
+- **Single-flight refresh.** Concurrent `refresh()` callers must keep sharing one backend call (`_refreshCompleter`); do not "simplify" it into independent calls. Sharing is **epoch-scoped**: a call started before the session was replaced must not be joined (`_refreshCompleterEpoch`).
+- **Every path that installs a session bumps the epoch.** `login` / `register` / `loginWith` / `updateSession` / `logout` / `dispose` call `_invalidateInFlight()` first, so a refresh already in flight can never overwrite the session they install (or write back a token minted from a rotated refresh token). Adding a new session-writing path means bumping the epoch too.
+- **A transient renewal failure never destroys a session.** Whether in `refresh()` or `restore()`, only `refreshFailurePolicy(failure) == true` may clear the store; everything else keeps the session so a later attempt can retry.
 - **Rethrow after emit.** `login()` / `register()` emit `AuthError` and then rethrow; callers (and the example app) must handle or deliberately swallow that rethrow.
 
 ## Dependencies and SDK constraints

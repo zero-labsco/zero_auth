@@ -31,11 +31,18 @@ final class UnexpectedAuthException extends AuthException {}     // unexpected_a
 ```
 
 `AuthStrategy` authors opt into these subtypes simply by throwing an
-`AuthException` carrying the matching `code`; `mapAuthFailure` performs the
-mapping, preserving any vocabulary it does not recognise.
+`AuthException` — or the bare `AuthFail` domain type — carrying the matching
+`code`; `mapAuthFailure` performs the mapping, preserving any vocabulary it does
+not recognise.
 
-`AuthStrategy` 实现者只需抛出携带对应 `code` 的 `AuthException` 即可参与映射；
-`mapAuthFailure` 负责转换，并保留它无法识别的自定义错误类型。
+`AuthStrategy` 实现者只需抛出携带对应 `code` 的 `AuthException` —— 或裸的领域类型
+`AuthFail` —— 即可参与映射；`mapAuthFailure` 负责转换，并保留它无法识别的自定义错误类型。
+
+```dart
+// Both of these map to InvalidCredentialsException / 两者都会映射为 InvalidCredentialsException
+throw AuthException('Wrong password', code: 'invalid_credentials');
+throw const AuthFail('Wrong password', code: 'invalid_credentials');
+```
 
 | code | Mapped type / 映射结果 |
 |------|------------------------|
@@ -91,6 +98,7 @@ switch (result) {
 | `login`/`register` fails | `AuthState` becomes `AuthError(error)` **and** the future throws `AppException` / 状态变为 `AuthError`，且 future 抛出 `AppException` |
 | `refresh` fails | `AuthError(error)` emitted, then `Unauthenticated` (unrecoverable) or back to `Authenticated` (transient) per the [failure policy](Configuration#refresh-failure-policy) / 发出 `AuthError`，随后按[失败策略](Configuration#refresh-failure-policy)转为 `Unauthenticated`（不可恢复）或回到 `Authenticated`（瞬时） |
 | `restore()` finds nothing | Stays `Unauthenticated` (not an error) / 保持 `Unauthenticated`（不算错误） |
+| `restore()` renewal fails transiently | Session **kept** (the next `validAccessToken()` retries); only a terminal failure clears the store / **保留**会话（下次 `validAccessToken()` 会重试）；只有终局失败才清空存储 |
 | `TokenStore.load()` throws | Mapped to `AppException`, treated as "no session" / 映射为 `AppException`，按"无会话"处理 |
 
 ## Next Steps / 下一步

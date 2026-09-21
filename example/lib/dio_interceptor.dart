@@ -3,6 +3,12 @@ import 'package:zero_auth/zero_auth.dart';
 
 /// Dio interceptor that attaches `Authorization: Bearer <token>` when a session
 /// is active, and skips the header when unauthenticated.
+///
+/// NOTE: this reads the synchronous `accessToken`, which may already be expired.
+/// Use [RefreshingAuthInterceptor] (or `validAccessToken()`) whenever the token
+/// actually reaches a server.
+/// 注意：这里读取的是同步的 `accessToken`，它可能已经过期。只要令牌真的要发到服务端，
+/// 请用 [RefreshingAuthInterceptor]（或 `validAccessToken()`）。
 final class AuthInterceptor extends Interceptor {
   AuthInterceptor(this.source);
 
@@ -60,23 +66,31 @@ final class AuthRetryInterceptor extends QueuedInterceptor {
   }
 }
 
-/// Variant that never sends an expired token: when the session has expired it
-/// transparently renews it through [AuthManager.validAccessToken] (which reuses
+/// Variant that never sends an expired token: it reads
+/// [AuthTokenSource.validAccessToken], which renews the session first (reusing
 /// the single-flight refresh) before attaching the header.
+///
+/// It accepts the interface rather than an [AuthManager], so any source can be
+/// wired in — the manager, an [AuthManagerGroup], or your own.
+/// 变体：绝不发送过期令牌。它读取 [AuthTokenSource.validAccessToken]，必要时先续期
+/// （复用单飞刷新）再附加请求头。
+///
+/// 它接受接口而不是 [AuthManager]，因此可接入任意令牌源 —— 管理器、
+/// [AuthManagerGroup] 或你自己的实现。
 ///
 /// Extends [QueuedInterceptor] so concurrent requests wait for one shared
 /// refresh instead of each triggering its own.
 final class RefreshingAuthInterceptor extends QueuedInterceptor {
-  RefreshingAuthInterceptor(this.manager);
+  RefreshingAuthInterceptor(this.source);
 
-  final AuthManager manager;
+  final AuthTokenSource source;
 
   @override
   void onRequest(
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    final token = await manager.validAccessToken();
+    final token = await source.validAccessToken();
     if (token != null) {
       options.headers['Authorization'] = 'Bearer $token';
     }

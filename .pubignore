@@ -11,6 +11,7 @@ wiki/
 TODO.md
 AGENTS.md
 CONTRIBUTING.md
+KNOWN_RISKS.md
 
 # Local design doc (repo-internal, not package API documentation).
 zero_auth_design.md

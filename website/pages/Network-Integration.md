@@ -8,13 +8,23 @@
 
 ```dart
 abstract class AuthTokenSource {
-  Future<String?> get accessToken;
+  String? get accessToken;                                // may be expired / 可能已过期
+  Future<String?> validAccessToken({Duration? leeway});    // renewed first / 先续期
 }
 ```
 
-`AuthManager.accessToken` returns the current token, or `null` when unauthenticated. It can also trigger a transparent refresh when the token is near expiry (implementation-dependent).
+`AuthManager.accessToken` returns the current token, or `null` when unauthenticated — and it may already be expired.
 
-`AuthManager.accessToken` 返回当前令牌；未认证时返回 `null`。在令牌接近过期时，它还可触发一次透明的刷新（取决于实现）。
+`AuthManager.accessToken` 返回当前令牌；未认证时返回 `null` —— 而且它可能已经过期。
+
+`validAccessToken()` is the one to use before a request: it renews first (reusing
+the single-flight refresh) and returns `null` only when there is nothing to send.
+`leeway` is how long the token must stay valid for, defaulting to the manager's
+`clockSkew` (30s), so a token that would die mid-request is renewed first.
+
+请求之前应当用 `validAccessToken()`：它会在必要时先续期（复用单飞刷新），只有真的无令牌
+可发时才返回 `null`。`leeway` 表示令牌必须还能维持有效的时长，默认取管理器的
+`clockSkew`（30 秒），因此会在请求途中失效的令牌会被提前续期。
 
 ## Dio interceptor / Dio 拦截器
 
@@ -24,17 +34,21 @@ abstract class AuthTokenSource {
 
 ```dart
 class AuthInterceptor extends Interceptor {
-  AuthInterceptor(this.tokens); // an AuthTokenSource
+  AuthInterceptor(this.tokens); // an AuthTokenSource / 一个令牌源
   final AuthTokenSource tokens;
 
   @override
   void onRequest(RequestOptions o, RequestInterceptorHandler h) async {
-    final t = await tokens.accessToken;
+    final t = await tokens.validAccessToken(); // renews first / 先续期
     if (t != null) o.headers['Authorization'] = 'Bearer $t';
     h.next(o);
   }
 }
 ```
+
+> If you only want the synchronous read, use `tokens.accessToken` — but remember
+> it may hand you a token that has already expired.
+> 若只需要同步读取，可用 `tokens.accessToken` —— 但请记住它可能返回一个已过期的令牌。
 
 ```dart
 final dio = Dio()
