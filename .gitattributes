@@ -1,2 +1,11 @@
-# Normalize all text files to LF on commit and checkout.
+# Normalize all text files to LF on checkout and commit so `dart format`
+# output is identical across Windows / Linux / macOS and CI never loops on
+# CRLF. See AGENTS.md ("Pinned toolchain" / CI renormalize steps).
+# 所有文本文件在 checkout/commit 时统一为 LF，确保 Windows/Linux/macOS 与
+# CI 的 `dart format` 输出一致、永不因 CRLF 循环。见 AGENTS.md。
 * text=auto eol=lf
+
+# Windows batch files must keep CRLF to run under cmd.exe.
+# Windows 批处理文件必须保持 CRLF 才能在 cmd.exe 下运行。
+*.bat text eol=crlf
+*.cmd text eol=crlf
