@@ -49,8 +49,8 @@ class _DemoStrategy implements AuthStrategy {
 
   @override
   Future<AuthSession> refresh(RefreshToken token) async => login(
-    const Credentials(username: _validUsername, password: _validPassword),
-  );
+        const Credentials(username: _validUsername, password: _validPassword),
+      );
 }
 
 /// Real HTTP backend strategy. Talks to the Dart server in `../../server`.
@@ -64,14 +64,14 @@ class _HttpAuthStrategy implements AuthStrategy {
       res.data as Map<String, dynamic>;
 
   AuthSession _toSession(Map<String, dynamic> data) => AuthSession(
-    accessToken: data['accessToken'] as String,
-    refreshToken: RefreshToken(data['refreshToken'] as String),
-    expiresAt: data['expiresIn'] != null
-        ? DateTime.now().add(Duration(seconds: data['expiresIn'] as int))
-        : null,
-    userId: data['userId'] as String,
-    displayName: data['displayName'] as String,
-  );
+        accessToken: data['accessToken'] as String,
+        refreshToken: RefreshToken(data['refreshToken'] as String),
+        expiresAt: data['expiresIn'] != null
+            ? DateTime.now().add(Duration(seconds: data['expiresIn'] as int))
+            : null,
+        userId: data['userId'] as String,
+        displayName: data['displayName'] as String,
+      );
 
   @override
   Future<AuthSession> login(Credentials credentials) async {
@@ -194,10 +194,10 @@ class _DemoAppState extends State<DemoApp> {
   }
 
   void _toggleBackend(bool value) => setState(() {
-    unawaited(_auth.dispose());
-    _useBackend = value;
-    _init();
-  });
+        unawaited(_auth.dispose());
+        _useBackend = value;
+        _init();
+      });
 
   /// Runs an auth action and swallows the rethrown error: [AuthManager] already
   /// surfaces it as an [AuthError] state, so there is nothing left to handle.
@@ -271,50 +271,51 @@ class _DemoAppState extends State<DemoApp> {
 
   @override
   Widget build(BuildContext context) => MaterialApp(
-    title: 'zero_auth demo',
-    theme: _theme(Brightness.light),
-    darkTheme: _theme(Brightness.dark),
-    home: Scaffold(
-      appBar: AppBar(title: const Text('zero_auth demo')),
-      body: SafeArea(
-        child: StreamBuilder<AuthState>(
-          initialData: _auth.current,
-          stream: _auth.state,
-          builder: (context, snapshot) => _DemoBody(
-            state: snapshot.data,
-            auth: _auth,
-            useBackend: _useBackend,
-            baseUrl: _baseUrl,
-            username: _username,
-            password: _password,
-            onToggleBackend: _toggleBackend,
-            onLogin: () => _invoke(
-              () => _auth.login(
-                Credentials(username: _username.text, password: _password.text),
+        title: 'zero_auth demo',
+        theme: _theme(Brightness.light),
+        darkTheme: _theme(Brightness.dark),
+        home: Scaffold(
+          appBar: AppBar(title: const Text('zero_auth demo')),
+          body: SafeArea(
+            child: StreamBuilder<AuthState>(
+              initialData: _auth.current,
+              stream: _auth.state,
+              builder: (context, snapshot) => _DemoBody(
+                state: snapshot.data,
+                auth: _auth,
+                useBackend: _useBackend,
+                baseUrl: _baseUrl,
+                username: _username,
+                password: _password,
+                onToggleBackend: _toggleBackend,
+                onLogin: () => _invoke(
+                  () => _auth.login(
+                    Credentials(
+                        username: _username.text, password: _password.text),
+                  ),
+                ),
+                onRefresh: () => _invoke(() => _auth.refresh()),
+                onLogout: () => _invoke(() => _auth.logout()),
+                onCallMe: () => _callMe(context),
+                onExpireNow: () => _expireTokenNow(context),
+                onExpireSoon: () => _expireTokenSoon(context, 10),
+                onResetDebug: () => _resetDebug(context),
               ),
             ),
-            onRefresh: () => _invoke(() => _auth.refresh()),
-            onLogout: () => _invoke(() => _auth.logout()),
-            onCallMe: () => _callMe(context),
-            onExpireNow: () => _expireTokenNow(context),
-            onExpireSoon: () => _expireTokenSoon(context, 10),
-            onResetDebug: () => _resetDebug(context),
           ),
         ),
-      ),
-    ),
-  );
+      );
 
   /// One seed colour drives the whole palette; widgets read shades from the
   /// theme instead of hardcoding colors.
   static ThemeData _theme(Brightness brightness) => ThemeData(
-    useMaterial3: true,
-    brightness: brightness,
-    colorScheme: ColorScheme.fromSeed(
-      seedColor: const Color(0xFF00695C),
-      brightness: brightness,
-    ),
-  );
+        useMaterial3: true,
+        brightness: brightness,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF00695C),
+          brightness: brightness,
+        ),
+      );
 }
 
 /// The scrollable demo surface. Adapts to the viewport: a full-width column on
@@ -578,16 +579,17 @@ class _Badge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-    decoration: BoxDecoration(
-      color: color,
-      borderRadius: const BorderRadius.all(Radius.circular(8)),
-    ),
-    child: Text(
-      label,
-      style: Theme.of(context).textTheme.labelMedium?.copyWith(color: onColor),
-    ),
-  );
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: const BorderRadius.all(Radius.circular(8)),
+        ),
+        child: Text(
+          label,
+          style:
+              Theme.of(context).textTheme.labelMedium?.copyWith(color: onColor),
+        ),
+      );
 }
 
 /// The complete access token, wrapped over as many lines as it needs.
@@ -679,13 +681,13 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => _LabeledRow(
-    label: label,
-    child: Text(
-      value,
-      style: Theme.of(context).textTheme.bodyMedium,
-      overflow: TextOverflow.ellipsis,
-    ),
-  );
+        label: label,
+        child: Text(
+          value,
+          style: Theme.of(context).textTheme.bodyMedium,
+          overflow: TextOverflow.ellipsis,
+        ),
+      );
 }
 
 /// Failure surface. Uses the theme's error container rather than literal red,
@@ -751,15 +753,15 @@ class _BackendCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Card(
-    child: SwitchListTile.adaptive(
-      value: useBackend,
-      onChanged: onChanged,
-      title: const Text('Live backend'),
-      subtitle: Text(useBackend ? baseUrl : 'offline double, no server'),
-      secondary: const Icon(Icons.cloud_outlined),
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16),
-    ),
-  );
+        child: SwitchListTile.adaptive(
+          value: useBackend,
+          onChanged: onChanged,
+          title: const Text('Live backend'),
+          subtitle: Text(useBackend ? baseUrl : 'offline double, no server'),
+          secondary: const Icon(Icons.cloud_outlined),
+          contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+        ),
+      );
 }
 
 /// Sign-in form. The password can be revealed, and submitting from the keyboard
