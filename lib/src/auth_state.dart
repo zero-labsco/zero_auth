@@ -33,11 +33,11 @@ sealed class AuthState {
   /// [Authenticated]、[Refreshing] 与 [LoggingOut] 都携带会话；当界面只需要会话时，
   /// 请优先使用此属性，而不是对三个子类分别做模式匹配。
   AuthSession? get session => switch (this) {
-    Authenticated(:final session) => session,
-    Refreshing(:final session) => session,
-    LoggingOut(:final session) => session,
-    _ => null,
-  };
+        Authenticated(:final session) => session,
+        Refreshing(:final session) => session,
+        LoggingOut(:final session) => session,
+        _ => null,
+      };
 }
 
 /// No active session.
