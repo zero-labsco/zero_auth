@@ -127,10 +127,11 @@ final class AuthSession {
   /// [claims] is written verbatim, so it must only contain JSON-safe values
   /// (String, num, bool, null, List, Map). A `DateTime` or a custom object there
   /// would make `jsonEncode` throw at the storage layer.
-  /// [claims] 会被原样写入，因此只能包含 JSON 安全的值（String、num、bool、null、
-  /// List、Map）。放入 `DateTime` 或自定义对象会让存储层的 `jsonEncode` 抛错。
   /// 序列化为 JSON 安全映射，供持久化使用（如写入磁盘或安全存储的 [TokenStore]）。
   /// 为 `null` 的字段会被省略。
+  ///
+  /// [claims] 会被原样写入，因此只能包含 JSON 安全的值（String、num、bool、null、
+  /// List、Map）。放入 `DateTime` 或自定义对象会让存储层的 `jsonEncode` 抛错。
   Map<String, Object?> toJson() => {
         'accessToken': accessToken,
         if (refreshToken != null) 'refreshToken': refreshToken!.value,
@@ -155,6 +156,55 @@ final class AuthSession {
         claims: (json['claims'] as Map?)?.cast<String, Object?>(),
       );
 
+  /// Deserialize from a map produced by [toJson], or return `null` when the map
+  /// does not describe a valid session.
+  ///
+  /// Prefer this over [fromJson] whenever the map comes from disk, secure
+  /// storage or the network: a schema change, a partial write or a hand-edited
+  /// value makes [fromJson] throw a [FormatException] / [TypeError] — a failure
+  /// outside the `AppException` vocabulary this package promises.
+  /// 从 [toJson] 生成的映射反序列化；映射无法描述合法会话时返回 `null`。
+  ///
+  /// 只要映射来自磁盘、安全存储或网络，就应优先使用它而非 [fromJson]：schema 变更、
+  /// 写入中断或人为改值都会让 [fromJson] 抛出 [FormatException] / [TypeError] ——
+  /// 那是本包承诺的 `AppException` 词汇之外的失败。
+  static AuthSession? tryFromJson(Object? json) {
+    if (json is! Map) return null;
+
+    final accessToken = json['accessToken'];
+    if (accessToken is! String) return null;
+
+    final refreshToken = json['refreshToken'];
+    if (refreshToken != null && refreshToken is! String) return null;
+
+    DateTime? expiresAt;
+    final rawExpiry = json['expiresAt'];
+    if (rawExpiry != null) {
+      if (rawExpiry is! String) return null;
+      expiresAt = DateTime.tryParse(rawExpiry);
+      if (expiresAt == null) return null;
+    }
+
+    final userId = json['userId'];
+    if (userId != null && userId is! String) return null;
+
+    final displayName = json['displayName'];
+    if (displayName != null && displayName is! String) return null;
+
+    final claims = json['claims'];
+    if (claims != null && claims is! Map) return null;
+
+    return AuthSession(
+      accessToken: accessToken,
+      refreshToken:
+          refreshToken == null ? null : RefreshToken(refreshToken as String),
+      expiresAt: expiresAt,
+      userId: userId as String?,
+      displayName: displayName as String?,
+      claims: (claims as Map?)?.cast<String, Object?>(),
+    );
+  }
+
   @override
   bool operator ==(Object other) =>
       other is AuthSession &&
@@ -177,27 +227,71 @@ final class AuthSession {
 
   /// Claims participate in equality so a session whose *only* change is in
   /// `claims` still counts as new — otherwise a state emission could be
-  /// suppressed as a duplicate.
+  /// suppressed as a duplicate. Nested maps and lists are compared structurally.
   /// claims 参与相等性比较，这样仅 claims 发生变化的会话也算新值，
-  /// 否则该次状态通知会被当作重复值抑制。
+  /// 否则该次状态通知会被当作重复值抑制。嵌套的 Map 与 List 按内容比较。
   static bool _claimsEqual(Map<String, Object?>? a, Map<String, Object?>? b) {
     if (identical(a, b)) return true;
-    if (a == null || b == null) return a == null && b == null;
+    if (a == null || b == null) return false;
     if (a.length != b.length) return false;
     for (final entry in a.entries) {
-      if (!b.containsKey(entry.key) || b[entry.key] != entry.value) {
-        return false;
-      }
+      if (!b.containsKey(entry.key)) return false;
+      if (!_deepEqual(entry.value, b[entry.key])) return false;
     }
     return true;
+  }
+
+  /// Structural equality for JSON-shaped values: nested maps and lists are
+  /// compared by content, everything else falls back to `==`.
+  /// 面向 JSON 形状值的结构化相等：嵌套 Map / List 按内容比较，其余回落到 `==`。
+  static bool _deepEqual(Object? a, Object? b) {
+    if (identical(a, b)) return true;
+    if (a is Map && b is Map) {
+      if (a.length != b.length) return false;
+      for (final key in a.keys) {
+        if (!b.containsKey(key)) return false;
+        if (!_deepEqual(a[key], b[key])) return false;
+      }
+      return true;
+    }
+    if (a is List && b is List) {
+      if (a.length != b.length) return false;
+      for (var i = 0; i < a.length; i++) {
+        if (!_deepEqual(a[i], b[i])) return false;
+      }
+      return true;
+    }
+    return a == b;
   }
 
   static int _claimsHash(Map<String, Object?>? claims) {
     if (claims == null) return 0;
     var hash = 0;
     for (final entry in claims.entries) {
-      hash ^= Object.hash(entry.key, entry.value);
+      hash ^= Object.hash(entry.key, _deepHash(entry.value));
     }
     return hash;
+  }
+
+  /// Mirrors [_deepEqual]: two values that compare equal must hash alike, so
+  /// nested maps and lists are hashed by content too.
+  /// 与 [_deepEqual] 对应：相等的值必须有相同的哈希，因此嵌套 Map / List 也按内容取哈希。
+  static int _deepHash(Object? value) {
+    if (value == null) return 0;
+    if (value is Map) {
+      var hash = 0;
+      for (final entry in value.entries) {
+        hash ^= Object.hash(entry.key, _deepHash(entry.value));
+      }
+      return hash;
+    }
+    if (value is List) {
+      var hash = 0;
+      for (final item in value) {
+        hash ^= _deepHash(item);
+      }
+      return hash;
+    }
+    return value.hashCode;
   }
 }

@@ -23,6 +23,21 @@ sealed class AuthState {
   /// 是否仍有操作在进行中（登录 / 注册 / 刷新 / 登出），可用于禁用按钮或显示加载态。
   bool get isBusy =>
       this is Authenticating || this is Refreshing || this is LoggingOut;
+
+  /// The session this state carries, or `null` when it carries none.
+  ///
+  /// [Authenticated], [Refreshing] and [LoggingOut] all carry one; prefer this
+  /// over pattern-matching the three subtypes when all a UI needs is the session.
+  /// 该状态携带的会话；不携带时为 `null`。
+  ///
+  /// [Authenticated]、[Refreshing] 与 [LoggingOut] 都携带会话；当界面只需要会话时，
+  /// 请优先使用此属性，而不是对三个子类分别做模式匹配。
+  AuthSession? get session => switch (this) {
+        Authenticated(:final session) => session,
+        Refreshing(:final session) => session,
+        LoggingOut(:final session) => session,
+        _ => null,
+      };
 }
 
 /// No active session.
@@ -52,6 +67,7 @@ final class Authenticating extends AuthState {
 /// A session is active.
 /// 会话处于活动状态。
 final class Authenticated extends AuthState {
+  @override
   final AuthSession session;
 
   const Authenticated(this.session);
@@ -70,6 +86,7 @@ final class Authenticated extends AuthState {
 /// 刷新进行中，同时保留旧的、仍然可用的 [session]。与 [Authenticated] 区分，便于 UI
 /// 显示「续期中…」提示，而不必卸载已登录界面。
 final class Refreshing extends AuthState {
+  @override
   final AuthSession session;
 
   const Refreshing(this.session);
@@ -85,6 +102,7 @@ final class Refreshing extends AuthState {
 /// A logout is in flight; [session] is the one being discarded.
 /// 登出进行中；[session] 是即将被丢弃的会话。
 final class LoggingOut extends AuthState {
+  @override
   final AuthSession session;
 
   const LoggingOut(this.session);
