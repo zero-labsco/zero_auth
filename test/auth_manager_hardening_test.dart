@@ -93,21 +93,21 @@ void main() {
     String token = 'access',
     String name = 'user@demo',
     bool expired = false,
-  }) =>
-      AuthSession(
-        accessToken: token,
-        refreshToken: const RefreshToken('refresh'),
-        expiresAt: expired
-            ? now.subtract(const Duration(minutes: 1))
-            : now.add(const Duration(minutes: 5)),
-        userId: 'user',
-        displayName: name,
-      );
+  }) => AuthSession(
+    accessToken: token,
+    refreshToken: const RefreshToken('refresh'),
+    expiresAt: expired
+        ? now.subtract(const Duration(minutes: 1))
+        : now.add(const Duration(minutes: 5)),
+    userId: 'user',
+    displayName: name,
+  );
 
   group('restore hardening', () {
     test('a logout during restore does not resurrect the session', () async {
-      final store =
-          _FlakyTokenStore(loadDelay: const Duration(milliseconds: 20));
+      final store = _FlakyTokenStore(
+        loadDelay: const Duration(milliseconds: 20),
+      );
       await store.save(session());
       final manager = AuthManager(
         strategy: FakeAuthStrategy(session: session()),
@@ -225,14 +225,14 @@ void main() {
       await expectLater(
         manager.login(const Credentials(username: 'u', password: 'p')),
         throwsA(
-          isA<AuthException>()
-              .having((e) => e.code, 'code', 'manager_disposed'),
+          isA<AuthException>().having(
+            (e) => e.code,
+            'code',
+            'manager_disposed',
+          ),
         ),
       );
-      await expectLater(
-        manager.restore(),
-        throwsA(isA<AuthException>()),
-      );
+      await expectLater(manager.restore(), throwsA(isA<AuthException>()));
     });
   });
 
@@ -299,9 +299,9 @@ void main() {
   group('proactive refresh retry', () {
     test('a transient failure re-arms the renewal', () {
       FakeAsync().run((async) {
-        final strategy = FakeAuthStrategy(session: session(expired: true))
-          ..refreshError =
-              AuthException('offline', code: 'network_unreachable');
+        final strategy = FakeAuthStrategy(
+          session: session(expired: true),
+        )..refreshError = AuthException('offline', code: 'network_unreachable');
         final manager = AuthManager(
           strategy: strategy,
           tokenStore: _FlakyTokenStore(),
@@ -324,11 +324,8 @@ void main() {
 
   group('session equality', () {
     test('claims participate in equality', () {
-      AuthSession build(Map<String, Object?>? claims) => AuthSession(
-            accessToken: 'access',
-            userId: 'user',
-            claims: claims,
-          );
+      AuthSession build(Map<String, Object?>? claims) =>
+          AuthSession(accessToken: 'access', userId: 'user', claims: claims);
 
       expect(build({'plan': 'pro'}), isNot(build({'plan': 'free'})));
       expect(build({'plan': 'pro'}), build({'plan': 'pro'}));
@@ -344,12 +341,12 @@ void main() {
         storeFactory: (id) => _FlakyTokenStore(),
       );
 
-      await group.addAccount('alice').login(
-            const Credentials(username: 'alice', password: 'pw'),
-          );
-      await group.addAccount('bob').login(
-            const Credentials(username: 'bob', password: 'pw'),
-          );
+      await group
+          .addAccount('alice')
+          .login(const Credentials(username: 'alice', password: 'pw'));
+      await group
+          .addAccount('bob')
+          .login(const Credentials(username: 'bob', password: 'pw'));
       group.switchTo('bob');
       expect(group.accessToken, isNotNull);
 

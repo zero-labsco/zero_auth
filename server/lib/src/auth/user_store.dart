@@ -13,7 +13,7 @@ final class UserRecord {
 /// in the backend has to change.
 final class UserStore {
   UserStore({Map<String, String>? credentials})
-      : _credentials = credentials ?? _defaultCredentials;
+    : _credentials = credentials ?? _defaultCredentials;
 
   static const _defaultCredentials = <String, String>{'user': 'user'};
 

@@ -15,10 +15,8 @@ void main() {
             userId: accountId,
           ),
         ),
-        storeFactory: (accountId) => stores.putIfAbsent(
-          accountId,
-          InMemoryTokenStore.new,
-        ),
+        storeFactory: (accountId) =>
+            stores.putIfAbsent(accountId, InMemoryTokenStore.new),
       );
 
   group('AuthManagerGroup — per-account managers', () {
@@ -38,9 +36,9 @@ void main() {
       final stores = <String, InMemoryTokenStore>{};
       final group = buildGroup(stores);
 
-      await group.forAccount('alice').login(
-            const Credentials(username: 'alice', password: 'pw'),
-          );
+      await group
+          .forAccount('alice')
+          .login(const Credentials(username: 'alice', password: 'pw'));
 
       expect(await stores['alice']!.load(), isNotNull);
       expect(await stores['bob']?.load(), isNull);
@@ -54,12 +52,12 @@ void main() {
       final stores = <String, InMemoryTokenStore>{};
       final group = buildGroup(stores);
 
-      await group.forAccount('alice').login(
-            const Credentials(username: 'alice', password: 'pw'),
-          );
-      await group.forAccount('bob').login(
-            const Credentials(username: 'bob', password: 'pw'),
-          );
+      await group
+          .forAccount('alice')
+          .login(const Credentials(username: 'alice', password: 'pw'));
+      await group
+          .forAccount('bob')
+          .login(const Credentials(username: 'bob', password: 'pw'));
 
       group.switchTo('alice');
       expect(group.activeId, 'alice');
@@ -77,9 +75,9 @@ void main() {
       final stores = <String, InMemoryTokenStore>{};
       final group = buildGroup(stores);
 
-      await group.forAccount('alice').login(
-            const Credentials(username: 'alice', password: 'pw'),
-          );
+      await group
+          .forAccount('alice')
+          .login(const Credentials(username: 'alice', password: 'pw'));
       group.switchTo('alice');
 
       final seen = <AuthState>[];
@@ -101,9 +99,9 @@ void main() {
       final stores = <String, InMemoryTokenStore>{};
       final group = buildGroup(stores);
 
-      await group.forAccount('alice').login(
-            const Credentials(username: 'alice', password: 'pw'),
-          );
+      await group
+          .forAccount('alice')
+          .login(const Credentials(username: 'alice', password: 'pw'));
       group.switchTo('alice');
 
       final seen = <AuthState>[];
@@ -123,35 +121,37 @@ void main() {
   });
 
   group('AuthManagerGroup — lifecycle', () {
-    test('restoreAll restores every account and activates the requested one',
-        () async {
-      final stores = <String, InMemoryTokenStore>{};
-      final seed = buildGroup(stores);
-      for (final id in ['alice', 'bob']) {
-        await seed.forAccount(id).login(
-              Credentials(username: id, password: 'pw'),
-            );
-      }
-      await seed.disposeAll();
+    test(
+      'restoreAll restores every account and activates the requested one',
+      () async {
+        final stores = <String, InMemoryTokenStore>{};
+        final seed = buildGroup(stores);
+        for (final id in ['alice', 'bob']) {
+          await seed
+              .forAccount(id)
+              .login(Credentials(username: id, password: 'pw'));
+        }
+        await seed.disposeAll();
 
-      // Fresh group reading the same persisted stores.
-      final group = buildGroup(stores);
-      await group.restoreAll(['alice', 'bob'], activeId: 'bob');
+        // Fresh group reading the same persisted stores.
+        final group = buildGroup(stores);
+        await group.restoreAll(['alice', 'bob'], activeId: 'bob');
 
-      expect(group.activeId, 'bob');
-      expect(group.accessToken, 'token-bob');
-      expect(group.forAccount('alice').current, isA<Authenticated>());
+        expect(group.activeId, 'bob');
+        expect(group.accessToken, 'token-bob');
+        expect(group.forAccount('alice').current, isA<Authenticated>());
 
-      await group.disposeAll();
-    });
+        await group.disposeAll();
+      },
+    );
 
     test('remove signs the account out and clears the active slot', () async {
       final stores = <String, InMemoryTokenStore>{};
       final group = buildGroup(stores);
 
-      await group.forAccount('alice').login(
-            const Credentials(username: 'alice', password: 'pw'),
-          );
+      await group
+          .forAccount('alice')
+          .login(const Credentials(username: 'alice', password: 'pw'));
       group.switchTo('alice');
 
       final seen = <AuthState>[];
@@ -175,9 +175,9 @@ void main() {
       final stores = <String, InMemoryTokenStore>{};
       final group = buildGroup(stores);
 
-      await group.forAccount('alice').login(
-            const Credentials(username: 'alice', password: 'pw'),
-          );
+      await group
+          .forAccount('alice')
+          .login(const Credentials(username: 'alice', password: 'pw'));
       group.switchTo('alice');
 
       await group.disposeAll();

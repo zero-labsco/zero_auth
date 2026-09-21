@@ -23,10 +23,7 @@ final class _UndeletableStore implements TokenStore {
 void main() {
   final now = DateTime.utc(2026, 1, 1, 12);
 
-  AuthSession session({
-    bool expired = false,
-    bool withRefresh = true,
-  }) =>
+  AuthSession session({bool expired = false, bool withRefresh = true}) =>
       AuthSession(
         accessToken: 'access',
         refreshToken: withRefresh ? const RefreshToken('refresh') : null,
@@ -67,10 +64,7 @@ void main() {
 
     test('renews an expired token when a refresh token exists', () async {
       final strategy = FakeAuthStrategy(session: session());
-      final manager = AuthManager(
-        strategy: strategy,
-        clock: () => now,
-      );
+      final manager = AuthManager(strategy: strategy, clock: () => now);
       await manager.login(
         const Credentials(username: 'user', password: 'user'),
       );
@@ -159,9 +153,9 @@ void main() {
   group('proactive retry is bounded', () {
     test('gives up after the configured number of attempts', () {
       FakeAsync().run((async) {
-        final strategy = FakeAuthStrategy(session: session(expired: true))
-          ..refreshError =
-              AuthException('offline', code: 'network_unreachable');
+        final strategy = FakeAuthStrategy(
+          session: session(expired: true),
+        )..refreshError = AuthException('offline', code: 'network_unreachable');
         final manager = AuthManager(
           strategy: strategy,
           tokenStore: InMemoryTokenStore(),
@@ -191,9 +185,7 @@ void main() {
   });
 
   group('AuthManagerGroup robustness', () {
-    AuthManagerGroup build({
-      TokenStore Function(String)? storeFactory,
-    }) =>
+    AuthManagerGroup build({TokenStore Function(String)? storeFactory}) =>
         AuthManagerGroup(
           strategyFactory: (id) => FakeAuthStrategy(session: session()),
           storeFactory: storeFactory ?? (id) => InMemoryTokenStore(),
@@ -215,8 +207,11 @@ void main() {
       expect(
         () => manager.refresh(),
         throwsA(
-          isA<AuthException>()
-              .having((e) => e.code, 'code', 'manager_disposed'),
+          isA<AuthException>().having(
+            (e) => e.code,
+            'code',
+            'manager_disposed',
+          ),
         ),
       );
       await group.disposeAll();
@@ -240,12 +235,12 @@ void main() {
 
     test('restoreAll can drop accounts that are no longer known', () async {
       final group = build();
-      await group.addAccount('alice').login(
-            const Credentials(username: 'alice', password: 'pw'),
-          );
-      await group.addAccount('carol').login(
-            const Credentials(username: 'carol', password: 'pw'),
-          );
+      await group
+          .addAccount('alice')
+          .login(const Credentials(username: 'alice', password: 'pw'));
+      await group
+          .addAccount('carol')
+          .login(const Credentials(username: 'carol', password: 'pw'));
 
       await group.restoreAll(['alice'], activeId: 'alice', dropOthers: true);
 
