@@ -9,8 +9,8 @@ enum LogLevel { debug, info, warn, error }
 /// `LOG_LEVEL=debug` to also see per-route debug lines.
 final class Logger {
   Logger({LogLevel minimum = LogLevel.info, Stdout? output})
-      : _minimum = minimum,
-        _out = output ?? stdout;
+    : _minimum = minimum,
+      _out = output ?? stdout;
 
   final LogLevel _minimum;
   final Stdout _out;

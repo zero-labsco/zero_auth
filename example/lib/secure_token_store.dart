@@ -7,7 +7,7 @@ import 'package:zero_auth/zero_auth.dart';
 /// is required. Swap for your own codec as needed.
 final class SecureTokenStore implements TokenStore {
   SecureTokenStore([FlutterSecureStorage? storage])
-      : _storage = storage ?? const FlutterSecureStorage();
+    : _storage = storage ?? const FlutterSecureStorage();
 
   final FlutterSecureStorage _storage;
 

@@ -37,15 +37,14 @@ void main() {
     bool expired = false,
     bool withRefresh = true,
     Duration ttl = const Duration(hours: 1),
-  }) =>
-      AuthSession(
-        accessToken: accessToken,
-        refreshToken: withRefresh ? const RefreshToken('refresh') : null,
-        expiresAt: expired
-            ? fixedNow.subtract(const Duration(minutes: 5))
-            : fixedNow.add(ttl),
-        userId: 'u1',
-      );
+  }) => AuthSession(
+    accessToken: accessToken,
+    refreshToken: withRefresh ? const RefreshToken('refresh') : null,
+    expiresAt: expired
+        ? fixedNow.subtract(const Duration(minutes: 5))
+        : fixedNow.add(ttl),
+    userId: 'u1',
+  );
 
   /// Lets pending microtasks settle so stream emissions become observable.
   /// 让挂起的微任务执行完，使状态流的新值可被观察。
@@ -56,28 +55,30 @@ void main() {
   }
 
   group('AuthManager — refresh lifecycle', () {
-    test('emits Refreshing then Authenticated, and stays usable meanwhile',
-        () async {
-      final strategy = FakeAuthStrategy(session: buildSession());
-      final manager = AuthManager(
-        strategy: strategy,
-        tokenStore: InMemoryTokenStore(),
-        clock: () => fixedNow,
-      );
-      await manager.login(credentials);
+    test(
+      'emits Refreshing then Authenticated, and stays usable meanwhile',
+      () async {
+        final strategy = FakeAuthStrategy(session: buildSession());
+        final manager = AuthManager(
+          strategy: strategy,
+          tokenStore: InMemoryTokenStore(),
+          clock: () => fixedNow,
+        );
+        await manager.login(credentials);
 
-      final states = <AuthState>[];
-      final sub = manager.state.listen(states.add);
-      await manager.refresh();
-      await pump();
+        final states = <AuthState>[];
+        final sub = manager.state.listen(states.add);
+        await manager.refresh();
+        await pump();
 
-      expect(states.any((s) => s is Refreshing), isTrue);
-      expect(states.last, isA<Authenticated>());
-      expect(manager.current.isAuthenticated, isTrue);
-      expect(manager.accessToken, 'access');
-      await sub.cancel();
-      await manager.dispose();
-    });
+        expect(states.any((s) => s is Refreshing), isTrue);
+        expect(states.last, isA<Authenticated>());
+        expect(manager.current.isAuthenticated, isTrue);
+        expect(manager.accessToken, 'access');
+        await sub.cancel();
+        await manager.dispose();
+      },
+    );
 
     test('a session stays available during Refreshing', () async {
       final strategy = _GatedStrategy(buildSession());
@@ -266,26 +267,28 @@ void main() {
       await manager.dispose();
     });
 
-    test('lands unauthenticated when refreshing an expired session fails',
-        () async {
-      final stale = buildSession(expired: true);
-      final store = InMemoryTokenStore();
-      await store.save(stale);
-      final strategy = FakeAuthStrategy(session: stale)
-        ..refreshError = SessionExpiredException();
-      final manager = AuthManager(
-        strategy: strategy,
-        tokenStore: store,
-        clock: () => fixedNow,
-      );
+    test(
+      'lands unauthenticated when refreshing an expired session fails',
+      () async {
+        final stale = buildSession(expired: true);
+        final store = InMemoryTokenStore();
+        await store.save(stale);
+        final strategy = FakeAuthStrategy(session: stale)
+          ..refreshError = SessionExpiredException();
+        final manager = AuthManager(
+          strategy: strategy,
+          tokenStore: store,
+          clock: () => fixedNow,
+        );
 
-      await manager.restore();
-      await pump();
+        await manager.restore();
+        await pump();
 
-      expect(manager.current, const Unauthenticated());
-      expect(await store.load(), isNull);
-      await manager.dispose();
-    });
+        expect(manager.current, const Unauthenticated());
+        expect(await store.load(), isNull);
+        await manager.dispose();
+      },
+    );
 
     test('refreshIfExpired: false keeps the session untouched', () async {
       final stale = buildSession(expired: true);
@@ -307,61 +310,60 @@ void main() {
   });
 
   group('AuthManager — races', () {
-    test('a refresh landing after logout does not resurrect the session',
-        () async {
-      final strategy = _GatedStrategy(buildSession());
-      final store = InMemoryTokenStore();
-      final manager = AuthManager(
-        strategy: strategy,
-        tokenStore: store,
-        clock: () => fixedNow,
-      );
-      await manager.login(credentials);
+    test(
+      'a refresh landing after logout does not resurrect the session',
+      () async {
+        final strategy = _GatedStrategy(buildSession());
+        final store = InMemoryTokenStore();
+        final manager = AuthManager(
+          strategy: strategy,
+          tokenStore: store,
+          clock: () => fixedNow,
+        );
+        await manager.login(credentials);
 
-      Object? refreshFailure;
-      final refreshing = manager.refresh();
-      unawaited(
-        refreshing.then<void>(
-          (_) {},
-          onError: (e) {
-            refreshFailure = e;
-          },
-        ),
-      );
+        Object? refreshFailure;
+        final refreshing = manager.refresh();
+        unawaited(
+          refreshing.then<void>(
+            (_) {},
+            onError: (e) {
+              refreshFailure = e;
+            },
+          ),
+        );
 
-      await manager.logout();
-      strategy.gate.complete(buildSession(accessToken: 'late'));
-      await pump();
+        await manager.logout();
+        strategy.gate.complete(buildSession(accessToken: 'late'));
+        await pump();
 
-      expect(refreshFailure, isA<AuthException>());
-      expect(manager.current, const Unauthenticated());
-      expect(manager.currentSession, isNull);
-      expect(await store.load(), isNull);
-      await manager.dispose();
-    });
+        expect(refreshFailure, isA<AuthException>());
+        expect(manager.current, const Unauthenticated());
+        expect(manager.currentSession, isNull);
+        expect(await store.load(), isNull);
+        await manager.dispose();
+      },
+    );
   });
 
   group('AuthManager — proactive refresh', () {
     test('failures never leak an unhandled async error', () async {
       final errors = <Object>[];
-      final zoneRun = runZonedGuarded<Future<void>>(
-        () async {
-          final strategy = FakeAuthStrategy(
-            session: buildSession(ttl: Duration.zero),
-          )..refreshError = SessionExpiredException();
-          final manager = AuthManager(
-            strategy: strategy,
-            tokenStore: InMemoryTokenStore(),
-            autoRefreshAhead: const Duration(minutes: 5),
-            clock: () => fixedNow,
-          );
-          await manager.login(credentials);
-          await pump();
-          expect(manager.current, const Unauthenticated());
-          await manager.dispose();
-        },
-        (error, stack) => errors.add(error),
-      );
+      final zoneRun = runZonedGuarded<Future<void>>(() async {
+        final strategy = FakeAuthStrategy(
+          session: buildSession(ttl: Duration.zero),
+        )..refreshError = SessionExpiredException();
+        final manager = AuthManager(
+          strategy: strategy,
+          tokenStore: InMemoryTokenStore(),
+          autoRefreshAhead: const Duration(minutes: 5),
+          clock: () => fixedNow,
+        );
+        await manager.login(credentials);
+        await pump();
+        expect(manager.current, const Unauthenticated());
+        await manager.dispose();
+      }, (error, stack) => errors.add(error));
       await (zoneRun ?? Future<void>.value());
       expect(errors, isEmpty);
     });
@@ -455,8 +457,9 @@ void main() {
 
   group('mapAuthFailure', () {
     test('maps invalid_credentials', () {
-      final mapped =
-          mapAuthFailure(AuthException('nope', code: 'invalid_credentials'));
+      final mapped = mapAuthFailure(
+        AuthException('nope', code: 'invalid_credentials'),
+      );
       expect(mapped, isA<InvalidCredentialsException>());
       expect(mapped.code, 'invalid_credentials');
     });

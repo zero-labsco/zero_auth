@@ -36,10 +36,7 @@ void main() {
       expect(const Refreshing(a), const Refreshing(b));
       expect(const LoggingOut(a), const LoggingOut(b));
       expect(const Refreshing(a), isNot(const LoggingOut(a)));
-      expect(
-        const Refreshing(a).hashCode,
-        const Refreshing(b).hashCode,
-      );
+      expect(const Refreshing(a).hashCode, const Refreshing(b).hashCode);
     });
 
     test('AuthError holds the exception', () {

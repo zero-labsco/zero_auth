@@ -13,11 +13,7 @@ import 'logging/logger.dart';
 /// The assembled demo backend: owns the socket, the middleware chain and the
 /// dependency graph.
 final class AuthServer {
-  AuthServer({
-    required this.config,
-    required this.logger,
-    required this.auth,
-  }) {
+  AuthServer({required this.config, required this.logger, required this.auth}) {
     _router
       ..post('/login', _controller.login)
       ..post('/refresh', _controller.refresh)

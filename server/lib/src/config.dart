@@ -32,9 +32,8 @@ final class ServerConfig {
   static const _defaultSecret = 'demo-secret-change-me';
 
   static Duration _durationFromEnv(String key, int defaultSeconds) => Duration(
-        seconds:
-            int.tryParse(Platform.environment[key] ?? '') ?? defaultSeconds,
-      );
+    seconds: int.tryParse(Platform.environment[key] ?? '') ?? defaultSeconds,
+  );
 
   final String host;
   final int port;
