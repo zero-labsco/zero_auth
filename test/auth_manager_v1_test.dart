@@ -44,8 +44,8 @@ final class _FailingStore implements TokenStore {
     this.failSaveAfter = 0,
     this.failClear = false,
     AuthSession? initial,
-  })  : value = initial,
-        _allowedSaves = failSaveAfter;
+  }) : value = initial,
+       _allowedSaves = failSaveAfter;
 
   final int failSaveAfter;
   final bool failClear;
@@ -167,10 +167,10 @@ final class _ShortTtlStrategy implements AuthStrategy {
   }
 
   AuthSession _issue() => AuthSession(
-        accessToken: 'access-$refreshCount',
-        refreshToken: const RefreshToken('refresh'),
-        expiresAt: DateTime.now().add(const Duration(milliseconds: 300)),
-      );
+    accessToken: 'access-$refreshCount',
+    refreshToken: const RefreshToken('refresh'),
+    expiresAt: DateTime.now().add(const Duration(milliseconds: 300)),
+  );
 }
 
 /// A strategy that keeps handing out sessions that are already due, to prove the
@@ -197,10 +197,10 @@ final class _ShortLivedStrategy implements AuthStrategy {
   }
 
   AuthSession _issued() => AuthSession(
-        accessToken: 'access-$refreshCount',
-        refreshToken: const RefreshToken('refresh'),
-        expiresAt: clock().add(const Duration(seconds: 1)),
-      );
+    accessToken: 'access-$refreshCount',
+    refreshToken: const RefreshToken('refresh'),
+    expiresAt: clock().add(const Duration(seconds: 1)),
+  );
 }
 
 final class _StaticTokenSource implements AuthTokenSource {
@@ -219,15 +219,14 @@ AuthSession _session(
   String? userId,
   String? displayName,
   Map<String, Object?>? claims,
-}) =>
-    AuthSession(
-      accessToken: token,
-      refreshToken: const RefreshToken('refresh'),
-      expiresAt: expiresAt,
-      userId: userId,
-      displayName: displayName,
-      claims: claims,
-    );
+}) => AuthSession(
+  accessToken: token,
+  refreshToken: const RefreshToken('refresh'),
+  expiresAt: expiresAt,
+  userId: userId,
+  displayName: displayName,
+  claims: claims,
+);
 
 const _credentials = Credentials(username: 'user', password: 'user');
 
@@ -235,32 +234,34 @@ void main() {
   final now = DateTime.utc(2026, 1, 1, 12);
 
   group('restore — transient renewal failures', () {
-    test('keeps the persisted session when the renewal fails transiently',
-        () async {
-      final store = _MemStore(
-        _session(
-          'old',
-          expiresAt: now.subtract(const Duration(minutes: 5)),
-          userId: 'u1',
-        ),
-      );
-      final manager = AuthManager(
-        strategy: _FailingRefreshStrategy(
-          AuthException('offline', code: 'network_unreachable'),
-          session: _session('unused'),
-        ),
-        tokenStore: store,
-        clock: () => now,
-      );
+    test(
+      'keeps the persisted session when the renewal fails transiently',
+      () async {
+        final store = _MemStore(
+          _session(
+            'old',
+            expiresAt: now.subtract(const Duration(minutes: 5)),
+            userId: 'u1',
+          ),
+        );
+        final manager = AuthManager(
+          strategy: _FailingRefreshStrategy(
+            AuthException('offline', code: 'network_unreachable'),
+            session: _session('unused'),
+          ),
+          tokenStore: store,
+          clock: () => now,
+        );
 
-      await manager.restore();
+        await manager.restore();
 
-      // The whole point of the failure policy: a transient error must not
-      // destroy a session that a later attempt could still renew.
-      expect(store.value, isNotNull);
-      expect(manager.currentSession?.accessToken, 'old');
-      expect(manager.current, isA<Authenticated>());
-    });
+        // The whole point of the failure policy: a transient error must not
+        // destroy a session that a later attempt could still renew.
+        expect(store.value, isNotNull);
+        expect(manager.currentSession?.accessToken, 'old');
+        expect(manager.current, isA<Authenticated>());
+      },
+    );
 
     test('still clears the session when the failure is terminal', () async {
       final store = _MemStore(
@@ -373,8 +374,10 @@ void main() {
   group('a stale refresh can never win', () {
     test('a refresh in flight does not overwrite a newer login', () async {
       final gate = Completer<AuthSession>();
-      final strategy =
-          _GatedStrategy(gate: gate, refreshed: _session('refreshed'));
+      final strategy = _GatedStrategy(
+        gate: gate,
+        refreshed: _session('refreshed'),
+      );
       final store = _MemStore();
       final manager = AuthManager(
         strategy: strategy,
@@ -395,8 +398,10 @@ void main() {
 
     test('a refresh in flight does not overwrite an updated session', () async {
       final gate = Completer<AuthSession>();
-      final strategy =
-          _GatedStrategy(gate: gate, refreshed: _session('refreshed'));
+      final strategy = _GatedStrategy(
+        gate: gate,
+        refreshed: _session('refreshed'),
+      );
       final store = _MemStore();
       final manager = AuthManager(
         strategy: strategy,
@@ -417,11 +422,12 @@ void main() {
       expect(manager.currentSession?.accessToken, 'login-1');
     });
 
-    test('a new refresh does not join one started in a previous epoch',
-        () async {
+    test('a new refresh does not join one started in a previous epoch', () async {
       final gate = Completer<AuthSession>();
-      final strategy =
-          _GatedStrategy(gate: gate, refreshed: _session('refreshed'));
+      final strategy = _GatedStrategy(
+        gate: gate,
+        refreshed: _session('refreshed'),
+      );
       final manager = AuthManager(
         strategy: strategy,
         tokenStore: _MemStore(),
@@ -466,32 +472,36 @@ void main() {
       expect(manager.currentSession!.claims, {'plan': 'pro'});
     });
 
-    test('preserveSessionDetails: false keeps the backend answer verbatim',
-        () async {
-      final manager = AuthManager(
-        strategy: _FixedStrategy(
-          session: _session('a', userId: 'u1', displayName: 'Ada'),
-          refreshed: _session('b'),
-        ),
-        tokenStore: _MemStore(),
-        clock: () => now,
-        preserveSessionDetails: false,
-      );
+    test(
+      'preserveSessionDetails: false keeps the backend answer verbatim',
+      () async {
+        final manager = AuthManager(
+          strategy: _FixedStrategy(
+            session: _session('a', userId: 'u1', displayName: 'Ada'),
+            refreshed: _session('b'),
+          ),
+          tokenStore: _MemStore(),
+          clock: () => now,
+          preserveSessionDetails: false,
+        );
 
-      await manager.login(_credentials);
-      await manager.refresh();
+        await manager.login(_credentials);
+        await manager.refresh();
 
-      expect(manager.currentSession!.userId, isNull);
-      expect(manager.currentSession!.displayName, isNull);
-    });
+        expect(manager.currentSession!.userId, isNull);
+        expect(manager.currentSession!.displayName, isNull);
+      },
+    );
   });
 
   group('clock skew', () {
     test('renews a token that would expire in flight', () async {
       final manager = AuthManager(
         strategy: _FixedStrategy(
-          session:
-              _session('a', expiresAt: now.add(const Duration(seconds: 10))),
+          session: _session(
+            'a',
+            expiresAt: now.add(const Duration(seconds: 10)),
+          ),
           refreshed: _session(
             'b',
             expiresAt: now.add(const Duration(minutes: 5)),
@@ -511,8 +521,10 @@ void main() {
     test('validAccessToken(leeway:) overrides the manager default', () async {
       final manager = AuthManager(
         strategy: _FixedStrategy(
-          session:
-              _session('a', expiresAt: now.add(const Duration(seconds: 10))),
+          session: _session(
+            'a',
+            expiresAt: now.add(const Duration(seconds: 10)),
+          ),
           refreshed: _session(
             'b',
             expiresAt: now.add(const Duration(minutes: 5)),
@@ -639,8 +651,10 @@ void main() {
             'a',
             expiresAt: now.subtract(const Duration(minutes: 1)),
           ),
-          refreshed:
-              _session('b', expiresAt: now.add(const Duration(minutes: 5))),
+          refreshed: _session(
+            'b',
+            expiresAt: now.add(const Duration(minutes: 5)),
+          ),
         ),
         tokenStore: _MemStore(),
         clock: () => now,

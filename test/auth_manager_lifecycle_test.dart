@@ -37,15 +37,14 @@ void main() {
     bool expired = false,
     bool withRefresh = true,
     Duration ttl = const Duration(hours: 1),
-  }) =>
-      AuthSession(
-        accessToken: accessToken,
-        refreshToken: withRefresh ? const RefreshToken('refresh') : null,
-        expiresAt: expired
-            ? fixedNow.subtract(const Duration(minutes: 5))
-            : fixedNow.add(ttl),
-        userId: 'u1',
-      );
+  }) => AuthSession(
+    accessToken: accessToken,
+    refreshToken: withRefresh ? const RefreshToken('refresh') : null,
+    expiresAt: expired
+        ? fixedNow.subtract(const Duration(minutes: 5))
+        : fixedNow.add(ttl),
+    userId: 'u1',
+  );
 
   /// Lets pending microtasks settle so stream emissions become observable.
   /// 让挂起的微任务执行完，使状态流的新值可被观察。
@@ -350,24 +349,21 @@ void main() {
   group('AuthManager — proactive refresh', () {
     test('failures never leak an unhandled async error', () async {
       final errors = <Object>[];
-      final zoneRun = runZonedGuarded<Future<void>>(
-        () async {
-          final strategy = FakeAuthStrategy(
-            session: buildSession(ttl: Duration.zero),
-          )..refreshError = SessionExpiredException();
-          final manager = AuthManager(
-            strategy: strategy,
-            tokenStore: InMemoryTokenStore(),
-            autoRefreshAhead: const Duration(minutes: 5),
-            clock: () => fixedNow,
-          );
-          await manager.login(credentials);
-          await pump();
-          expect(manager.current, const Unauthenticated());
-          await manager.dispose();
-        },
-        (error, stack) => errors.add(error),
-      );
+      final zoneRun = runZonedGuarded<Future<void>>(() async {
+        final strategy = FakeAuthStrategy(
+          session: buildSession(ttl: Duration.zero),
+        )..refreshError = SessionExpiredException();
+        final manager = AuthManager(
+          strategy: strategy,
+          tokenStore: InMemoryTokenStore(),
+          autoRefreshAhead: const Duration(minutes: 5),
+          clock: () => fixedNow,
+        );
+        await manager.login(credentials);
+        await pump();
+        expect(manager.current, const Unauthenticated());
+        await manager.dispose();
+      }, (error, stack) => errors.add(error));
       await (zoneRun ?? Future<void>.value());
       expect(errors, isEmpty);
     });

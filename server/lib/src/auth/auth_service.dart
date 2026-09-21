@@ -156,15 +156,15 @@ final class AuthService {
   }
 
   AuthSuccess _issue(UserRecord user, [String? refreshToken]) => AuthSuccess(
-        user: user,
-        accessToken: tokens.sign(
-          subject: user.id,
-          displayName: user.displayName,
-          type: TokenType.access,
-          ttl: accessTtl,
-          tokenId: tokens.newId(),
-        ),
-        refreshToken: refreshToken ?? refreshTokens.issue(user),
-        expiresIn: accessTtl.inSeconds,
-      );
+    user: user,
+    accessToken: tokens.sign(
+      subject: user.id,
+      displayName: user.displayName,
+      type: TokenType.access,
+      ttl: accessTtl,
+      tokenId: tokens.newId(),
+    ),
+    refreshToken: refreshToken ?? refreshTokens.issue(user),
+    expiresIn: accessTtl.inSeconds,
+  );
 }

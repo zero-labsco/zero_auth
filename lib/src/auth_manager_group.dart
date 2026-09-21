@@ -60,8 +60,8 @@ final class AuthManagerGroup implements AuthTokenSource {
     this.clockSkew,
     this.preserveSessionDetails = true,
     this.onStateChanged,
-  })  : _strategyFactory = strategyFactory,
-        _storeFactory = storeFactory;
+  }) : _strategyFactory = strategyFactory,
+       _storeFactory = storeFactory;
 
   /// Called once per account. Returning the same instance for every account is
   /// fine — and typical — since a strategy usually just talks to one backend.
@@ -79,7 +79,8 @@ final class AuthManagerGroup implements AuthTokenSource {
     String accountId,
     AuthStrategy strategy,
     TokenStore store,
-  )? managerFactory;
+  )?
+  managerFactory;
 
   /// Forwarded to every manager this group creates — see [AuthManager.new].
   /// 转发给分组创建的每个管理器 —— 参见 [AuthManager.new]。
@@ -156,8 +157,9 @@ final class AuthManagerGroup implements AuthTokenSource {
       clock: clock,
       clockSkew: clockSkew,
       preserveSessionDetails: preserveSessionDetails,
-      onStateChanged:
-          observer == null ? null : (state) => observer(accountId, state),
+      onStateChanged: observer == null
+          ? null
+          : (state) => observer(accountId, state),
     );
   }
 

@@ -15,12 +15,12 @@ class AuthException extends AppException {
   final AuthFail fail;
 
   AuthException.fromFail(this.fail)
-      : super(fail.message, code: fail.code, cause: fail.cause);
+    : super(fail.message, code: fail.code, cause: fail.cause);
 
   /// Convenience constructor for manager-internal failures.
   /// 供管理器内部失败使用的便捷构造。
   AuthException(String message, {String? code, Object? cause})
-      : this.fromFail(AuthFail(message, code: code, cause: cause));
+    : this.fromFail(AuthFail(message, code: code, cause: cause));
 }
 
 /// Credentials were rejected by the backend (wrong password, unknown user…).
@@ -38,7 +38,7 @@ final class InvalidCredentialsException extends AuthException {
 /// 授权已不可用：会话 / 刷新令牌 / 访问令牌已过期或被吊销，只能重新登录。
 final class SessionExpiredException extends AuthException {
   SessionExpiredException({String message = 'Session expired', Object? cause})
-      : super(message, code: 'session_expired', cause: cause);
+    : super(message, code: 'session_expired', cause: cause);
 }
 
 /// An operation that requires an active session was called with none.
@@ -99,10 +99,7 @@ AuthException mapAuthFailure(Object error) {
 
   switch (code) {
     case 'invalid_credentials':
-      return InvalidCredentialsException(
-        message: message,
-        cause: cause,
-      );
+      return InvalidCredentialsException(message: message, cause: cause);
     case 'invalid_grant':
     case 'invalid_refresh_token':
     case 'token_expired':
@@ -111,10 +108,7 @@ AuthException mapAuthFailure(Object error) {
     case 'no_active_session':
       return NoActiveSessionException(message: message, cause: cause);
     case 'refresh_token_missing':
-      return RefreshTokenMissingException(
-        message: message,
-        cause: cause,
-      );
+      return RefreshTokenMissingException(message: message, cause: cause);
     default:
       // Unclassifiable: keep whatever vocabulary the author already threw.
       // 无法归类：保留作者原本抛出的错误类型。
