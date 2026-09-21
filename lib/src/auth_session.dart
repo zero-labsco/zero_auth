@@ -94,14 +94,15 @@ final class AuthSession {
     String? userId,
     String? displayName,
     Map<String, Object?>? claims,
-  }) => AuthSession(
-    accessToken: accessToken ?? this.accessToken,
-    refreshToken: refreshToken ?? this.refreshToken,
-    expiresAt: expiresAt ?? this.expiresAt,
-    userId: userId ?? this.userId,
-    displayName: displayName ?? this.displayName,
-    claims: claims ?? this.claims,
-  );
+  }) =>
+      AuthSession(
+        accessToken: accessToken ?? this.accessToken,
+        refreshToken: refreshToken ?? this.refreshToken,
+        expiresAt: expiresAt ?? this.expiresAt,
+        userId: userId ?? this.userId,
+        displayName: displayName ?? this.displayName,
+        claims: claims ?? this.claims,
+      );
 
   /// How long until the access token expires, or `null` when there is no expiry.
   /// 距离访问令牌过期还有多久；无过期时间时为 `null`。
@@ -131,28 +132,28 @@ final class AuthSession {
   /// 序列化为 JSON 安全映射，供持久化使用（如写入磁盘或安全存储的 [TokenStore]）。
   /// 为 `null` 的字段会被省略。
   Map<String, Object?> toJson() => {
-    'accessToken': accessToken,
-    if (refreshToken != null) 'refreshToken': refreshToken!.value,
-    if (expiresAt != null) 'expiresAt': expiresAt!.toIso8601String(),
-    if (userId != null) 'userId': userId,
-    if (displayName != null) 'displayName': displayName,
-    if (claims != null) 'claims': claims,
-  };
+        'accessToken': accessToken,
+        if (refreshToken != null) 'refreshToken': refreshToken!.value,
+        if (expiresAt != null) 'expiresAt': expiresAt!.toIso8601String(),
+        if (userId != null) 'userId': userId,
+        if (displayName != null) 'displayName': displayName,
+        if (claims != null) 'claims': claims,
+      };
 
   /// Deserialize from a map produced by [toJson].
   /// 从 [toJson] 生成的映射反序列化。
   factory AuthSession.fromJson(Map<String, Object?> json) => AuthSession(
-    accessToken: json['accessToken'] as String,
-    refreshToken: json['refreshToken'] == null
-        ? null
-        : RefreshToken(json['refreshToken'] as String),
-    expiresAt: json['expiresAt'] == null
-        ? null
-        : DateTime.parse(json['expiresAt'] as String),
-    userId: json['userId'] as String?,
-    displayName: json['displayName'] as String?,
-    claims: (json['claims'] as Map?)?.cast<String, Object?>(),
-  );
+        accessToken: json['accessToken'] as String,
+        refreshToken: json['refreshToken'] == null
+            ? null
+            : RefreshToken(json['refreshToken'] as String),
+        expiresAt: json['expiresAt'] == null
+            ? null
+            : DateTime.parse(json['expiresAt'] as String),
+        userId: json['userId'] as String?,
+        displayName: json['displayName'] as String?,
+        claims: (json['claims'] as Map?)?.cast<String, Object?>(),
+      );
 
   @override
   bool operator ==(Object other) =>
@@ -166,13 +167,13 @@ final class AuthSession {
 
   @override
   int get hashCode => Object.hash(
-    accessToken,
-    refreshToken,
-    expiresAt,
-    userId,
-    displayName,
-    _claimsHash(claims),
-  );
+        accessToken,
+        refreshToken,
+        expiresAt,
+        userId,
+        displayName,
+        _claimsHash(claims),
+      );
 
   /// Claims participate in equality so a session whose *only* change is in
   /// `claims` still counts as new — otherwise a state emission could be

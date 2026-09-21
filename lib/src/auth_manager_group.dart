@@ -41,8 +41,8 @@ final class AuthManagerGroup implements AuthTokenSource {
   AuthManagerGroup({
     required AuthStrategy Function(String accountId) strategyFactory,
     required TokenStore Function(String accountId) storeFactory,
-  }) : _strategyFactory = strategyFactory,
-       _storeFactory = storeFactory;
+  })  : _strategyFactory = strategyFactory,
+        _storeFactory = storeFactory;
 
   /// Called once per account. Returning the same instance for every account is
   /// fine — and typical — since a strategy usually just talks to one backend.
