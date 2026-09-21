@@ -12,8 +12,12 @@ final auth = AuthManager(
   tokenStore: SecureTokenStore(), // where to persist tokens / 令牌持久化位置
   autoRefreshAhead: const Duration(minutes: 5), // proactive renewal / 主动续期
   autoRefreshRetryDelay: const Duration(seconds: 30), // re-arm after a failed renewal / 续期失败后重新排程
+  autoRefreshMaxRetries: 3,       // cap those retries / 重试上限
+  autoRefreshMinInterval: const Duration(seconds: 5), // floor for an already-due renewal / 已到期续期的下限
   refreshFailurePolicy: defaultRefreshFailurePolicy, // sign-out rule / 登出规则
   clock: () => DateTime.now(),    // time source (tests, skew) / 时间源（测试、时钟偏移）
+  clockSkew: const Duration(seconds: 30), // treat tokens as expired this much earlier / 提前多久视为过期
+  preserveSessionDetails: true,   // keep identity across a tokens-only renewal / 只换令牌的续期保留身份
   onStateChanged: (state) => debugPrint('$state'), // observe every emission / 观察每次状态
 );
 ```
@@ -24,6 +28,10 @@ final auth = AuthManager(
 | Token persistence | `TokenStore` | Disk / secure storage / in-memory / 磁盘/安全存储/内存 |
 | Refresh timing | `AuthSession.expiresAt` + `autoRefreshAhead` | Proactive renewal is scheduled that far before expiry / 在过期前该时长调度主动续期 |
 | Renewal retry | `autoRefreshRetryDelay` | After a *proactive* renewal fails, it is re-armed this much later (default 30s) while a session still exists / 主动续期失败后按此时长重新排程（默认 30 秒），会话仍在才重试 |
+| Renewal retry cap | `autoRefreshMaxRetries` | How many failed proactive renewals to retry before giving up (default 3) / 主动续期失败最多重试几次（默认 3） |
+| Renewal floor | `autoRefreshMinInterval` | Minimum wait for a renewal that is already due (default 5s), so very short-lived tokens cannot cause a tight loop / 「已到期」续期的最小等待（默认 5 秒），极短寿命令牌不会造成紧密循环 |
+| Clock skew | `clockSkew` | How much earlier a token counts as expired (default 30s); absorbs a device clock that runs ahead and the latency of the request itself. **If your access tokens live under a minute, lower it** (e.g. 5s) or almost every read renews first / 提前多久把令牌视为过期（默认 30 秒），用于吸收设备时钟偏快与请求自身的延迟。**若访问令牌寿命不足一分钟，请调小**（如 5 秒），否则几乎每次读取都会先续期 |
+| Identity on renewal | `preserveSessionDetails` | Carry `userId` / `displayName` / `claims` over a renewal that returns tokens only (default `true`) / 只返回令牌的续期是否保留身份字段（默认 `true`） |
 | Observation | `onStateChanged` | Optional callback for every emitted state, for logging or analytics / 可选回调，每次发出状态时触发，便于日志或埋点 |
 | Refresh failure handling | `refreshFailurePolicy` | Whether a failed refresh signs the user out / 刷新失败是否让用户登出 |
 | Time source | `clock` | Drives expiry maths and proactive scheduling; inject one for deterministic tests or to tolerate device clock skew / 驱动过期计算与主动刷新调度；注入时钟可实现确定性测试或容忍设备时钟偏移 |

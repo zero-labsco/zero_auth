@@ -24,6 +24,10 @@ Two helpers save you from spelling out every case:
   下均为 `true`，续期不会卸载已登录界面。
 - `state.isBusy` — `true` while `Authenticating`, `Refreshing` or `LoggingOut`. /
   在 `Authenticating`、`Refreshing`、`LoggingOut` 期间为 `true`。
+- `state.session` — the session the state carries (`Authenticated` / `Refreshing` /
+  `LoggingOut`), or `null`; no pattern-matching needed for the common case. /
+  该状态携带的会话（`Authenticated` / `Refreshing` / `LoggingOut`）或 `null`，
+  常见场景无需再做模式匹配。
 
 ## The stream / 状态流
 
@@ -65,10 +69,11 @@ auth.state.listen((state) {
 ```
 
 - `restore()` restores a live session → `Authenticated`.
-- `restore()` restores an **expired** session → attempts `Refreshing`; if it
-  cannot be renewed (or there is no refresh token) the store is cleared and it
-  lands on `Unauthenticated`. `restore(refreshIfExpired: false)` restores it
-  verbatim instead.
+- `restore()` restores an **expired** session → attempts `Refreshing`; if the
+  renewal fails *transiently* (network, 5xx) the persisted session is **kept** and
+  activated as-is, so the next request can retry. Only a terminal failure — or the
+  absence of a refresh token — clears the store and lands on `Unauthenticated`.
+  `restore(refreshIfExpired: false)` restores it verbatim instead.
 - A failed `login`/`register` → `AuthError`, and the future rethrows.
 - A failed `refresh` → `AuthError`, followed by `Unauthenticated` when the
   [failure policy](#refresh-failure-policy) considers the grant unrecoverable,
@@ -77,8 +82,9 @@ auth.state.listen((state) {
   real change.
 
 - `restore()` 恢复未过期会话 → `Authenticated`。
-- `restore()` 恢复**已过期**会话 → 先走 `Refreshing`；若无法续期（或没有刷新令牌），
-  则清空存储并落到 `Unauthenticated`。`restore(refreshIfExpired: false)` 则原样恢复。
+- `restore()` 恢复**已过期**会话 → 先走 `Refreshing`；若续期**瞬时**失败（网络、5xx），
+  则**保留**持久化会话并按原样激活，下次请求可再试。只有终局失败（或没有刷新令牌）
+  才会清空存储并落到 `Unauthenticated`。`restore(refreshIfExpired: false)` 则原样恢复。
 - `login`/`register` 失败 → `AuthError`，同时 future 再次抛出错误。
 - `refresh` 失败 → `AuthError`；随后由[失败策略](#refresh-failure-policy)决定：
   认为授权不可恢复则转 `Unauthenticated`，认为只是瞬时故障则回到 `Authenticated`。

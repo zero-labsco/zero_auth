@@ -12,7 +12,7 @@
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 推荐升级：** `0.5.0` 补上了剩余的生命周期漏洞：无法续期时 `validAccessToken()` 不再返回过期令牌；登出失败时 `AuthManagerGroup.remove()` 不再泄漏管理器；`disposeAll()` 之后使用分组会被明确拒绝而不是崩溃。另新增 `AuthSession.copyWith()` / `isExpiringWithin()`、异步 `updateSession()`、有上限的主动续期重试与 `restoreAll(dropOthers:)`。无需迁移。请使用 `zero_auth: ^0.5.0`（Git 方式用 `ref: release/v0.5.0`）。
+> **🔔 推荐升级：** `1.0.0` 是**首个稳定版本** —— 公共 API 自此按 semver 冻结。它补上了最后一批生命周期漏洞：续期瞬时失败时 `restore()` 不再让用户登出；迟到的刷新再也无法覆盖更新的登录；续期不再抹掉 `userId` / `displayName` / `claims`。同时新增时钟偏移容忍（`clockSkew`，默认 30 秒）、`AuthSession.tryFromJson`、`AuthState.session` 与会续期的 `AuthTokenSource.validAccessToken()`。**唯一需要迁移的一点：** 若你 `implements AuthTokenSource`，请补上 `@override Future<String?> validAccessToken({Duration? leeway}) async => accessToken;`。请使用 `zero_auth: ^1.0.0`（Git 方式用 `ref: release/v1.0.0`）。
 
 🌐 **[官方网站](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[在 pub.dev 查看](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[查看 GitHub 仓库](https://github.com/zero-labsco/zero_auth)**
 
@@ -45,7 +45,8 @@
 - **显式状态机**：`Unauthenticated`、`Authenticating`、`Authenticated`、`Refreshing`、`LoggingOut`、`AuthError`，以「重放最近值」的广播流对外暴露。建议用 `state.isAuthenticated` / `state.isBusy` 代替 `state is Authenticated`，这样令牌续期时不会卸载已登录界面。
 - **静默恢复与刷新**：启动时恢复持久化会话（会话已过期则先续期），并透明刷新令牌（单飞机制，并发调用方共享同一次刷新）。
 - **自带任意登录流程**：`loginWith` 可接纳你自行驱动的流程所产生的会话——第三方 OAuth、魔法链接、Passkey 或生物识别解锁。
-- **绝不发送过期令牌**：`validAccessToken()` 在令牌过期时先续期再返回，非常适合 HTTP 拦截器。
+- **绝不发送过期令牌**：`validAccessToken()` 在令牌已过期（或按 `clockSkew` 即将过期）时先续期再返回，非常适合 HTTP 拦截器。
+- **容忍时钟偏移**：`clockSkew`（默认 30 秒）会提前一点把令牌视为过期，设备时钟偏快时也不会发出一个途中失效的令牌。
 - **类型化认证异常**：`InvalidCredentialsException`、`SessionExpiredException` 等，可由你策略里的 `AuthException.code` 自动映射而来。
 - **可配置的刷新失败处理**：`refreshFailurePolicy` 决定一次刷新失败是否让用户登出（默认：不可恢复的失败登出，瞬时故障保留会话）。
 - **多账号（可选）**：`AuthManagerGroup` 为每个账号持有一个 `AuthManager`，可让多个账号同时保持登录；内核本身仍是单会话。
@@ -54,7 +55,7 @@
 - **面向网络**：`AuthTokenSource` 是扩展点，让 Dio / GraphQL 拦截器能为请求附加 `Authorization: Bearer` 头。
 - **零原生代码**：无插件、无 `dart:io`-only API；可在服务端、CLI 与 Flutter 中运行。
 - **强类型会话**：`AuthSession` 携带访问 / 刷新令牌、过期时间与原始 claims。
-- **会话（反）序列化**：`AuthSession.toJson` / `AuthSession.fromJson` 让持久化成为一行代码；并附带面向服务端 / CLI 的基于文件的参考存储。
+- **会话（反）序列化**：`AuthSession.toJson` / `AuthSession.fromJson` 让持久化成为一行代码；遇到畸形数据时 `AuthSession.tryFromJson` 返回 `null` 而不是抛异常。并附带面向服务端 / CLI 的基于文件的参考存储。
 - **临近过期自动刷新**：给 `AuthManager` 传入 `autoRefreshAhead`，令牌会在过期前自动续期（单飞机制），调用方几乎不会撞上过期的访问令牌。
 
 ## 安装
@@ -63,7 +64,7 @@
 
 ```yaml
 dependencies:
-  zero_auth: ^0.5.0
+  zero_auth: ^1.0.0
 ```
 
 ### Git
@@ -73,7 +74,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v0.5.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
+      ref: release/v1.0.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
 ```
 
 ## 使用方法
@@ -129,8 +130,14 @@ final auth = AuthManager(
 `AuthManager` **本身就是一个** `AuthTokenSource`。把它交给 Dio 拦截器（参考实现位于 `example/lib/dio_interceptor.dart`）：
 
 ```dart
-dio.interceptors.add(AuthInterceptor(auth)); // 自动添加 `Authorization: Bearer <token>`
+// 必要时先续期 —— 真实应用的稳妥默认选择。
+dio.interceptors.add(RefreshingAuthInterceptor(auth));
+
+// 同步版本：附加会话当前持有的令牌，它可能已经过期。适合你在别处统一续期的短寿命令牌。
+dio.interceptors.add(AuthInterceptor(auth));
 ```
+
+由于 `AuthTokenSource` 自身也暴露了 `validAccessToken()`，拦截器只依赖接口也能拿到续期后的令牌。
 
 ### 接入自定义登录流程（`loginWith`）
 
@@ -164,6 +171,20 @@ final token = await auth.validAccessToken();
 if (token != null) headers['Authorization'] = 'Bearer $token';
 ```
 
+它还会拒绝那些「请求途中就会失效」的令牌：`clockSkew`（默认 30 秒）是保留的余量，
+`validAccessToken(leeway:)` 可按单次调用覆盖。
+
+```dart
+// 长耗时上传：要求令牌至少还能撑过接下来两分钟。
+final token = await auth.validAccessToken(leeway: const Duration(minutes: 2));
+
+// 完全关闭偏移容忍。
+final strict = AuthManager(strategy: strategy, clockSkew: Duration.zero);
+```
+
+> 若你的访问令牌**寿命不足一分钟**，请把 `clockSkew` 调小（例如
+> `const Duration(seconds: 5)`）—— 否则几乎每次读取都会先续期。
+
 也可以让管理器在过期前主动续期：
 
 ```dart
@@ -172,6 +193,9 @@ final auth = AuthManager(
   autoRefreshAhead: const Duration(minutes: 5),
 );
 ```
+
+无论哪种方式，只返回令牌的续期都会保留已登录身份（`userId` / `displayName` /
+`claims`）；传 `preserveSessionDetails: false` 可原样采用后端响应。
 
 ### 用类型化异常处理失败
 
@@ -243,25 +267,28 @@ flutter run
 
 ## API 参考
 
-> **从 0.2.x 升级** —— `AuthState` 新增了两个子类：`Refreshing` 与 `LoggingOut`，
-> 因此穷举 `switch` 必须处理它们。建议改用 `state.isAuthenticated` 与
-> `state.isBusy`，状态继续演进也不会失效。
+> **升级到 1.0** —— 公共 API 自此按 semver 冻结。唯一需要迁移的一点：若你
+> `implements AuthTokenSource`，请补上
+> `@override Future<String?> validAccessToken({Duration? leeway}) async => accessToken;`。
+> （从 0.2.x 升级：`AuthState` 新增了 `Refreshing` 与 `LoggingOut` 两个子类，穷举
+> `switch` 必须处理它们 —— 建议改用 `state.isAuthenticated` 与 `state.isBusy`，
+> 状态继续演进也不会失效。）
 
 ### `AuthManager`
 
 | 成员 | 签名 | 说明 |
 |------|------|------|
-| 构造函数 | `AuthManager({required strategy, TokenStore? tokenStore, Duration? autoRefreshAhead, Duration? autoRefreshRetryDelay, RefreshFailurePolicy? refreshFailurePolicy, DateTime Function()? clock, void Function(AuthState)? onStateChanged})` | `tokenStore` 默认为 `InMemoryTokenStore`；`autoRefreshAhead` 开启主动续期、`autoRefreshRetryDelay` 在失败后重新排程；`clock` 覆盖时间源；`onStateChanged` 观察每次状态 |
+| 构造函数 | `AuthManager({required strategy, TokenStore? tokenStore, Duration? autoRefreshAhead, Duration? autoRefreshRetryDelay, int? autoRefreshMaxRetries, Duration? autoRefreshMinInterval, RefreshFailurePolicy? refreshFailurePolicy, DateTime Function()? clock, Duration? clockSkew, bool preserveSessionDetails = true, void Function(AuthState)? onStateChanged})` | `tokenStore` 默认为 `InMemoryTokenStore`；`autoRefreshAhead` 开启主动续期、`autoRefreshRetryDelay` 在失败后重新排程、`autoRefreshMaxRetries` 限制重试次数（默认 3）、`autoRefreshMinInterval` 为「已到期」的续期设下限（默认 5 秒）；`clockSkew` 表示提前多久视为过期（默认 30 秒）；`preserveSessionDetails` 在续期时保留身份字段；`clock` 覆盖时间源；`onStateChanged` 观察每次状态 |
 | `current` | `AuthState get current` | 最新状态，始终可读 |
 | `state` | `Stream<AuthState> get state` | 广播流，对新订阅者重放最新值 |
 | `currentSession` | `AuthSession? get currentSession` | 在 `Authenticated` **与** `Refreshing` 期间可用 |
 | `accessToken` | `String? get accessToken` | 可能已过期，请求请用 `validAccessToken` |
-| `restore()` | `Future<void> restore({bool refreshIfExpired = true})` | 修复已过期的持久化会话，无法续期则丢弃 |
+| `restore()` | `Future<void> restore({bool refreshIfExpired = true})` | 修复已过期的持久化会话：续期瞬时失败时**保留**会话，终局失败才丢弃；并发调用共享同一次尝试 |
 | `login()` | `Future<Authenticated> login(Credentials)` | 发出 `Authenticating → Authenticated`；失败发 `AuthError` **并重新抛出** |
 | `register()` | `Future<Authenticated> register(RegistrationInput)` | 语义同 `login` |
 | `loginWith()` | `Future<Authenticated> loginWith(Future<AuthSession> Function(AuthStrategy))` | 接纳任意自定义流程产生的会话 |
-| `refresh()` | `Future<AuthSession>` | 发出 `Refreshing`；单飞；失败时按 `refreshFailurePolicy` 处理 |
-| `validAccessToken()` | `Future<String?>` | 绝不返回过期令牌，必要时先续期 |
+| `refresh()` | `Future<AuthSession>` | 发出 `Refreshing`；同一 epoch 内单飞；失败时按 `refreshFailurePolicy` 处理 |
+| `validAccessToken()` | `Future<String?> validAccessToken({Duration? leeway})` | 绝不返回过期令牌；当令牌会在 `leeway`（默认 `clockSkew`）内过期时先续期 |
 | `logout()` | `Future<void>` | 发出 `LoggingOut`、尽力调用后端、清空存储，落到 `Unauthenticated` |
 | `updateSession()` | `Future<Authenticated> updateSession(AuthSession Function(AuthSession))` | 无需重新登录即可替换活动会话；未登录时抛出 |
 | `supports<T>()` | `bool supports<T>()` | 策略是否实现了某个可选能力 |
@@ -273,12 +300,15 @@ flutter run
 
 | 成员 | 说明 |
 |------|------|
-| 构造函数 | `AuthManagerGroup({required strategyFactory, required storeFactory})` —— 两者都会收到账号 id；请为每个账号提供独立的 `TokenStore` |
+| 构造函数 | `AuthManagerGroup({required strategyFactory, required storeFactory, managerFactory, autoRefreshAhead, autoRefreshRetryDelay, autoRefreshMaxRetries, autoRefreshMinInterval, refreshFailurePolicy, clock, clockSkew, preserveSessionDetails, onStateChanged})` —— 两个工厂都会收到账号 id；请为每个账号提供独立的 `TokenStore`。管理器调参会完整转发给它创建的管理器；也可传 `managerFactory` 自行构建 |
 | `forAccount(id)` / `addAccount(id)` | 惰性创建并缓存该账号的 `AuthManager` |
-| `switchTo(id)` | 激活某个账号，分组的 `state` 随之切换 |
+| `switchTo(id)` | 激活某个账号，分组的 `state` 随之切换，并让 `activeIdChanges` 发出新值 |
+| `activeIdChanges` | `Stream<String?>`：激活账号 id（无激活时为 `null`） |
+| `onStateChanged` | 以 `(accountId, state)` 形式调用，覆盖所有账号 |
 | `logoutAll()` | 一次性登出所有账号并全部遗忘 |
 | `current` / `state` / `currentSession` / `accessToken` | 反映激活账号 |
-| `restoreAll(ids, {activeId})` | 恢复所有账号，然后激活其中一个 |
+| `validAccessToken()` | 激活账号续期后的令牌；无则为 `null` |
+| `restoreAll(ids, {activeId})` | 恢复所有账号（某个账号失败不会连累其余），然后激活其中一个 |
 | `remove(id)` | 登出并移除某个账号 |
 | `disposeAll()` | 释放所有管理器 |
 
@@ -297,7 +327,8 @@ flutter run
 | `AuthError` | `AppException error` | 上一次操作失败 |
 
 辅助属性：`isAuthenticated` 在 `Authenticated` **与** `Refreshing` 下为 `true`；
-`isBusy` 覆盖 `Authenticating`、`Refreshing`、`LoggingOut`。
+`isBusy` 覆盖 `Authenticating`、`Refreshing`、`LoggingOut`；`session` 返回该状态携带的
+会话（`Authenticated` / `Refreshing` / `LoggingOut`），无则为 `null`。
 
 ### `AuthSession`
 
@@ -306,7 +337,11 @@ flutter run
 | `accessToken`、`refreshToken`、`expiresAt`、`userId`、`displayName`、`claims` | 令牌、过期时间、身份与原始 claims |
 | `isExpired` | 按系统时钟判断是否过期 |
 | `isExpiredAt(DateTime)` | 按你自己的时钟判断 |
-| `toJson()` / `AuthSession.fromJson()` | 持久化用，`null` 字段会被省略 |
+| `timeUntilExpiry([DateTime])` | 剩余有效期；无过期时间时为 `null` |
+| `isExpiringWithin(window, [DateTime])` | 是否会在 `window` 内过期，便于提前续期 |
+| `copyWith(...)` | 只替换传入的字段；传 `null` 表示保留原值（要清空请新建会话） |
+| `toJson()` / `AuthSession.fromJson()` | 持久化用，`null` 字段会被省略；`fromJson` 遇畸形数据会抛异常 |
+| `AuthSession.tryFromJson()` | 同上，但畸形数据返回 `null`；凡是从磁盘或安全存储读出的内容都建议用它 |
 
 ### 边界与值对象
 
@@ -314,7 +349,7 @@ flutter run
 |------|------|
 | `AuthStrategy` | 由你实现的后端边界：`login` / `register` / `logout` / `refresh` |
 | `TokenStore` | 持久化边界：`save` / `load` / `clear`；内核自带 `InMemoryTokenStore` |
-| `AuthTokenSource` | 供网络层使用的只读令牌来源，`AuthManager` 即实现它 |
+| `AuthTokenSource` | 供网络层使用的只读令牌来源：`accessToken` 与 `validAccessToken({leeway})`（由管理器支持时会先续期）。`AuthManager` 与 `AuthManagerGroup` 均实现它 |
 | `Credentials`、`RegistrationInput`、`SessionHandle`、`RefreshToken` | 跨边界传递的值对象 |
 | `SupportsPasswordReset`、`SupportsPasswordChange`、`SupportsReauthentication` | 可选能力接口，用 `AuthManager.supports<T>()` 检测，从而保持四方法契约不变 |
 
@@ -329,7 +364,7 @@ flutter run
 | `NoActiveSessionException` | 需要活动会话的操作却没有会话 |
 | `RefreshTokenMissingException` | 会话无刷新令牌却请求了刷新 |
 | `UnexpectedAuthException` | 无法归类时的兜底类型 |
-| `mapAuthFailure(Object)` | 按 `code` 把捕获的错误映射为最具体的子类 |
+| `mapAuthFailure(Object)` | 按 `code` 把捕获的错误映射为最具体的子类 —— 对 `AuthException` 与裸 `AuthFail` 都生效 |
 | `defaultRefreshFailurePolicy` | 不可恢复的失败登出，瞬时故障保留会话 |
 | `Result<T>` | 可选的显式 `Ok` / `Err` 包装 |
 
@@ -354,7 +389,8 @@ flutter run
                                                         （保留上一个会话）
 
    登出 ──► LoggingOut ──► Unauthenticated
-   restore() ──► Authenticated；无持久化内容或无法续期时为 Unauthenticated
+   restore() ──► Authenticated；无持久化内容或终局失败时为 Unauthenticated
+                 （续期瞬时失败时保留持久化会话）
 ```
 
 管理器不含 UI、后端或原生代码。通过 `AuthStrategy` 接入后端，通过 `TokenStore` 接入持久化；网络层只依赖 `AuthTokenSource`。

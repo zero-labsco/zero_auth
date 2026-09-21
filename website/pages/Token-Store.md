@@ -43,7 +43,9 @@ class SecureTokenStore implements TokenStore {
   @override
   Future<AuthSession?> load() async {
     final raw = await _box.read(key: 'zero_auth');
-    return raw == null ? null : AuthSession.fromJson(jsonDecode(raw));
+    // tryFromJson: corrupt data means "not signed in", not a crash.
+    // tryFromJson：数据损坏代表「未登录」，而不是崩溃。
+    return AuthSession.tryFromJson(raw == null ? null : jsonDecode(raw));
   }
   @override
   Future<void> clear() => _box.delete(key: 'zero_auth');

@@ -39,9 +39,21 @@ Yes — `refresh()` is single-flight: many concurrent callers share one in-fligh
 
 ### How do I attach the bearer token to requests? / 如何给请求附加 Bearer 令牌？
 
-`AuthManager` is an `AuthTokenSource`. Use the Dio interceptor in `example/lib/dio_interceptor.dart`, or read `accessToken` directly.
+`AuthManager` is an `AuthTokenSource`. Use the Dio interceptor in `example/lib/dio_interceptor.dart`, or read `accessToken` directly — but prefer `validAccessToken()` (or `RefreshingAuthInterceptor`) whenever the token reaches a server, since `accessToken` may already be expired.
 
-`AuthManager` 即 `AuthTokenSource`。可用 `example/lib/dio_interceptor.dart` 中的 Dio 拦截器，或直接读取 `accessToken`。
+`AuthManager` 即 `AuthTokenSource`。可用 `example/lib/dio_interceptor.dart` 中的 Dio 拦截器，或直接读取 `accessToken` —— 但只要令牌要发到服务端，就请优先用 `validAccessToken()`（或 `RefreshingAuthInterceptor`），因为 `accessToken` 可能已经过期。
+
+### Does it sync sessions across devices? / 它会在多设备间同步会话吗？
+
+No — and by design. A session is local state plus whatever your backend decides;
+pushing "signed out elsewhere" to a device needs server push (or polling), which
+is outside a headless state machine. Model it with your backend revoking the
+grant: the next refresh fails, `refreshFailurePolicy` signs the device out, and
+`AuthError` explains why.
+
+不会 —— 这是有意的设计。会话是本地状态加上你后端的决定；把「在别处已登出」推送到某台
+设备需要服务端推送（或轮询），那超出了无头状态机的职责。可由后端吊销授权来实现：下一次
+刷新失败，`refreshFailurePolicy` 会让该设备登出，并由 `AuthError` 说明原因。
 
 ### Which platforms are supported? / 支持哪些平台？
 

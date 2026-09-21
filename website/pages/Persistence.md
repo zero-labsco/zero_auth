@@ -13,6 +13,12 @@
 ```dart
 final json = session.toJson();            // Map<String, Object?>
 final restored = AuthSession.fromJson(json);
+
+// Prefer this inside TokenStore.load(): malformed data yields null ("not signed
+// in") instead of a FormatException / TypeError.
+// TokenStore.load() 里请优先用它：畸形数据返回 null（即「未登录」），而不是抛
+// FormatException / TypeError。
+final safe = AuthSession.tryFromJson(json);
 ```
 
 `RefreshToken` serializes to its raw string too, so a persisted session rehydrates losslessly.
