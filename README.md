@@ -12,7 +12,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 Upgrade recommended:** `1.0.0` is the **first stable release** — the public API is now frozen under semver. It closes the last lifecycle holes: `restore()` no longer signs you out when a renewal fails transiently, a late refresh can no longer overwrite a newer login, and a renewal no longer erases `userId` / `displayName` / `claims`. It also adds clock-skew tolerance (`clockSkew`, default 30s), `AuthSession.tryFromJson`, `AuthState.session` and renewing `AuthTokenSource.validAccessToken()`. **One migration step:** if you `implements AuthTokenSource`, add `@override Future<String?> validAccessToken({Duration? leeway}) async => accessToken;`. Pin `zero_auth: ^1.0.0` (or git `ref: release/v1.0.0`).
+> **🔔 Upgrade recommended:** `1.1.0` closes the last "lost persistence" hole — a transient `TokenStore.save()` failure is now retried once, and reported with a dedicated `code` when it still fails, so the device can no longer fall out of sync with an already-rotated backend. It also makes observer failures visible through `onObserverError`, caps the clock skew for very short-lived tokens (`clockSkewFraction`) and adds `AuthManagerGroup.restoreAll(parallel:)`. **No migration step:** every addition is opt-in. Pin `zero_auth: ^1.1.0` (or git `ref: release/v1.1.0`).
 
 🌐 **[Official Website](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[View on pub.dev](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[View on GitHub](https://github.com/zero-labsco/zero_auth)**
 
@@ -64,7 +64,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 
 ```yaml
 dependencies:
-  zero_auth: ^1.0.0
+  zero_auth: ^1.1.0
 ```
 
 ### Git
@@ -74,7 +74,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v1.0.0   # pin the release/vX.Y.Z branch (immutable per release)
+      ref: release/v1.1.0   # pin the release/vX.Y.Z branch (immutable per release)
 ```
 
 ## Usage
@@ -320,9 +320,12 @@ single-session, so nothing changes unless you use this.
 | `activeIdChanges` | `Stream<String?>` of the active account id (`null` when none is active) |
 | `onStateChanged` | Called as `(accountId, state)` for every emission of every account |
 | `logoutAll()` | Signs every account out and forgets them |
+| `accountIds` | `Iterable<String>` of the ids the group currently owns |
+| `activeId` | `String?` — the active account id, `null` when none is active |
+| `active` | `AuthManager?` — the active account's manager, `null` when none is active |
 | `current` / `state` / `currentSession` / `accessToken` | Mirror the active account |
-| `validAccessToken()` | The active account's renewed token, or `null` |
-| `restoreAll(ids, {activeId})` | Restores every account — one failing account does not abandon the rest — then activates one |
+| `validAccessToken({leeway})` | The active account's renewed token, or `null` |
+| `restoreAll(ids, {activeId, dropOthers})` | Restores every account — one failing account does not abandon the rest — then activates one. `dropOthers: true` disposes the managers of ids that are no longer known |
 | `remove(id)` | Signs out and forgets an account |
 | `disposeAll()` | Releases every manager |
 

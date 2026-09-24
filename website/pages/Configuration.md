@@ -17,8 +17,10 @@ final auth = AuthManager(
   refreshFailurePolicy: defaultRefreshFailurePolicy, // sign-out rule / 登出规则
   clock: () => DateTime.now(),    // time source (tests, skew) / 时间源（测试、时钟偏移）
   clockSkew: const Duration(seconds: 30), // treat tokens as expired this much earlier / 提前多久视为过期
+  clockSkewFraction: 0.25,        // cap the skew for short-lived tokens / 为短寿命令牌设置容差上限
   preserveSessionDetails: true,   // keep identity across a tokens-only renewal / 只换令牌的续期保留身份
   onStateChanged: (state) => debugPrint('$state'), // observe every emission / 观察每次状态
+  onObserverError: (error, stack) => debugPrint('observer failed: $error'),
 );
 ```
 
@@ -30,9 +32,11 @@ final auth = AuthManager(
 | Renewal retry | `autoRefreshRetryDelay` | After a *proactive* renewal fails, it is re-armed this much later (default 30s) while a session still exists / 主动续期失败后按此时长重新排程（默认 30 秒），会话仍在才重试 |
 | Renewal retry cap | `autoRefreshMaxRetries` | How many failed proactive renewals to retry before giving up (default 3) / 主动续期失败最多重试几次（默认 3） |
 | Renewal floor | `autoRefreshMinInterval` | Minimum wait for a renewal that is already due (default 5s), so very short-lived tokens cannot cause a tight loop / 「已到期」续期的最小等待（默认 5 秒），极短寿命令牌不会造成紧密循环 |
-| Clock skew | `clockSkew` | How much earlier a token counts as expired (default 30s); absorbs a device clock that runs ahead and the latency of the request itself. **If your access tokens live under a minute, lower it** (e.g. 5s) or almost every read renews first / 提前多久把令牌视为过期（默认 30 秒），用于吸收设备时钟偏快与请求自身的延迟。**若访问令牌寿命不足一分钟，请调小**（如 5 秒），否则几乎每次读取都会先续期 |
-| Identity on renewal | `preserveSessionDetails` | Carry `userId` / `displayName` / `claims` over a renewal that returns tokens only (default `true`) / 只返回令牌的续期是否保留身份字段（默认 `true`） |
+| Clock skew | `clockSkew` | How much earlier a token counts as expired (default 30s); absorbs a device clock that runs ahead and the latency of the request itself / 提前多久把令牌视为过期（默认 30 秒），用于吸收设备时钟偏快与请求自身的延迟 |
+| Skew cap | `clockSkewFraction` | Caps `clockSkew` at this fraction of the **observed token lifetime** (default `0.25`), so a backend handing out very short-lived tokens does not turn one request into one renewal. A 5–15 minute token is unaffected; pass `double.infinity` to disable the cap / 把 `clockSkew` 钳制为**观测到的令牌寿命**的这个比例（默认 `0.25`），避免签发极短寿命令牌的后端把「一次请求」变成「一次续期」。5–15 分钟的令牌不受影响；传 `double.infinity` 可关闭该上限 |
+| Identity on renewal | `preserveSessionDetails` | Carry `userId` / `displayName` / `claims` over a renewal that returns tokens only (default `true`). Those fields are then as fresh as the last full login, so pull authoritative claims with `updateSession()` when a permission can change / 只返回令牌的续期是否保留身份字段（默认 `true`）。此时这些字段的时效取决于上次完整登录，因此权限可能变化时应改用 `updateSession()` 拉取权威 claims |
 | Observation | `onStateChanged` | Optional callback for every emitted state, for logging or analytics / 可选回调，每次发出状态时触发，便于日志或埋点 |
+| Observer failures | `onObserverError` | Called when `onStateChanged` throws, so a broken sink is reported instead of failing silently. Silent when omitted — the state machine is never affected either way / 当 `onStateChanged` 抛异常时调用，使坏掉的日志/埋点被上报而不是静默失败。不传则保持静默；两种方式都不会影响状态机 |
 | Refresh failure handling | `refreshFailurePolicy` | Whether a failed refresh signs the user out / 刷新失败是否让用户登出 |
 | Time source | `clock` | Drives expiry maths and proactive scheduling; inject one for deterministic tests or to tolerate device clock skew / 驱动过期计算与主动刷新调度；注入时钟可实现确定性测试或容忍设备时钟偏移 |
 | Token injection | `AuthTokenSource` / `validAccessToken()` | How the bearer token reaches HTTP clients, optionally renewing an expired token first / 令牌如何到达 HTTP 客户端，必要时先续期过期令牌 |
@@ -81,6 +85,17 @@ Proactive (background) refresh failures are handled internally, so a scheduled
 renewal can never surface as an unhandled async error.
 
 主动（后台）刷新的失败会在内部处理，因此定时续期永远不会以未处理异步错误的形式泄漏。
+
+> Proactive renewal rides on a `Timer`, and **hosts throttle timers**: mobile
+> background execution, battery saver and backgrounded browser tabs can all delay
+> it well past `autoRefreshAhead`. Treat it as an optimisation — the guarantee
+> comes from `validAccessToken()`, which renews on demand regardless of what the
+> timers did. Never rely on the proactive timer alone for a short-lived token.
+>
+> 主动续期依赖 `Timer`，而**宿主会节流定时器**：移动端后台执行、省电模式与被切到后台的
+> 浏览器标签页都会让它远晚于 `autoRefreshAhead` 才触发。请把它当作优化 —— 真正的保证
+> 来自 `validAccessToken()`，无论定时器表现如何它都会按需续期。短寿命令牌不要只依赖
+> 主动续期定时器。
 
 ## No global singletons / 没有全局单例
 

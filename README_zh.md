@@ -12,7 +12,7 @@
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 推荐升级：** `1.0.0` 是**首个稳定版本** —— 公共 API 自此按 semver 冻结。它补上了最后一批生命周期漏洞：续期瞬时失败时 `restore()` 不再让用户登出；迟到的刷新再也无法覆盖更新的登录；续期不再抹掉 `userId` / `displayName` / `claims`。同时新增时钟偏移容忍（`clockSkew`，默认 30 秒）、`AuthSession.tryFromJson`、`AuthState.session` 与会续期的 `AuthTokenSource.validAccessToken()`。**唯一需要迁移的一点：** 若你 `implements AuthTokenSource`，请补上 `@override Future<String?> validAccessToken({Duration? leeway}) async => accessToken;`。请使用 `zero_auth: ^1.0.0`（Git 方式用 `ref: release/v1.0.0`）。
+> **🔔 推荐升级：** `1.1.0` 补上了最后一个「持久化丢失」漏洞 —— `TokenStore.save()` 的瞬时失败现在会重试一次，仍失败时以专门的 `code` 上报，因此设备再也不会与已轮换的后端失同步。它还通过 `onObserverError` 让观察者失败可见，新增 `clockSkewFraction`（为极短寿命令牌设置容差上限）与 `AuthManagerGroup.restoreAll(parallel:)`。**无需任何迁移：** 所有新增都是可选的。请使用 `zero_auth: ^1.1.0`（Git 方式用 `ref: release/v1.1.0`）。
 
 🌐 **[官方网站](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[在 pub.dev 查看](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[查看 GitHub 仓库](https://github.com/zero-labsco/zero_auth)**
 
@@ -64,7 +64,7 @@
 
 ```yaml
 dependencies:
-  zero_auth: ^1.0.0
+  zero_auth: ^1.1.0
 ```
 
 ### Git
@@ -74,7 +74,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v1.0.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
+      ref: release/v1.1.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
 ```
 
 ## 使用方法
@@ -306,9 +306,12 @@ flutter run
 | `activeIdChanges` | `Stream<String?>`：激活账号 id（无激活时为 `null`） |
 | `onStateChanged` | 以 `(accountId, state)` 形式调用，覆盖所有账号 |
 | `logoutAll()` | 一次性登出所有账号并全部遗忘 |
+| `accountIds` | `Iterable<String>`：分组当前持有的账号 id |
+| `activeId` | `String?`：激活账号 id，无激活账号时为 `null` |
+| `active` | `AuthManager?`：激活账号的管理器，无激活账号时为 `null` |
 | `current` / `state` / `currentSession` / `accessToken` | 反映激活账号 |
-| `validAccessToken()` | 激活账号续期后的令牌；无则为 `null` |
-| `restoreAll(ids, {activeId})` | 恢复所有账号（某个账号失败不会连累其余），然后激活其中一个 |
+| `validAccessToken({leeway})` | 激活账号续期后的令牌；无则为 `null` |
+| `restoreAll(ids, {activeId, dropOthers})` | 恢复所有账号（某个账号失败不会连累其余），然后激活其中一个；`dropOthers: true` 会释放不再已知 id 的管理器 |
 | `remove(id)` | 登出并移除某个账号 |
 | `disposeAll()` | 释放所有管理器 |
 

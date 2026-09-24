@@ -9,14 +9,8 @@ import 'package:zero_auth/zero_auth.dart';
 /// any Dart target that has `dart:io` (server, CLI, desktop). For Flutter
 /// mobile use the encrypted [SecureTokenStore] instead — a plaintext file is not
 /// a secure location for refresh tokens.
-///
-/// 基于磁盘 JSON 文件的 [TokenStore]。
-///
-/// 它使用 [AuthSession.toJson] / [AuthSession.fromJson]，因此可移植到任何具备
-/// `dart:io` 的 Dart 目标（服务端、CLI、桌面）。在 Flutter 移动端请改用加密的
-/// [SecureTokenStore]——明文文件并非刷新令牌的安全存放位置。
-final class FileTokenStore implements TokenStore {
-  FileTokenStore(this.file);
+final class JsonTokenStore implements TokenStore {
+  JsonTokenStore(this.file);
 
   final File file;
 
@@ -30,7 +24,9 @@ final class FileTokenStore implements TokenStore {
     if (!await file.exists()) return null;
     final content = await file.readAsString();
     if (content.isEmpty) return null;
-    return AuthSession.fromJson(jsonDecode(content) as Map<String, Object?>);
+    // tryFromJson, not fromJson: a partial write or a hand-edited file must read
+    // as "not signed in", not throw a FormatException at startup.
+    return AuthSession.tryFromJson(jsonDecode(content));
   }
 
   @override

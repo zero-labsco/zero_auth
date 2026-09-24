@@ -1,5 +1,77 @@
 # Changelog
 
+## 1.1.0
+
+### Added / 新增
+
+- **`onObserverError`** — called when `onStateChanged` throws, so a broken logger
+  or analytics sink is reported instead of failing silently. Silent when omitted,
+  and the state machine is never affected either way. `AuthManagerGroup` forwards
+  an account-tagged variant to every manager it creates.
+  - **`onObserverError`** —— 当 `onStateChanged` 抛异常时调用，使坏掉的日志 / 埋点被
+    上报而不是静默失败；不传则保持静默，两种方式都不会影响状态机。`AuthManagerGroup`
+    会把带账号标记的版本转发给它创建的每个管理器。
+- **`clockSkewFraction`** — caps `clockSkew` at this fraction of the **observed
+  token lifetime** (default `0.25`), so a backend handing out very short-lived
+  tokens does not turn one request into one renewal. A 5–15 minute access token is
+  unaffected; pass `double.infinity` to disable the cap.
+  - **`clockSkewFraction`** —— 把 `clockSkew` 钳制为**观测到的令牌寿命**的这个比例
+    （默认 `0.25`），避免签发极短寿命令牌的后端把「一次请求」变成「一次续期」。5–15
+    分钟的访问令牌不受影响；传 `double.infinity` 可关闭该上限。
+- **`AuthManagerGroup.restoreAll(parallel:)`** — restore every account
+  concurrently instead of one after another, so startup cost becomes the slowest
+  store rather than the sum of them. Off by default; error reporting is unchanged
+  (the first failure, in `accountIds` order, is still thrown at the end).
+  - **`AuthManagerGroup.restoreAll(parallel:)`** —— 并发恢复所有账号，使启动耗时从
+    「各存储耗时之和」变为「最慢的那个」。默认关闭；错误上报行为不变（仍会按
+    `accountIds` 顺序抛出第一个失败）。
+
+### Changed / 变更
+
+- **A failing `TokenStore.save()` is retried once** before the failure is
+  reported, and that failure now carries a dedicated `code`
+  (`session_persist_failed`), so "could not persist" can be told apart from
+  "rejected".
+  - **`TokenStore.save()` 失败时会先重试一次**再上报，且该失败带有专门的 `code`
+    （`session_persist_failed`），便于区分「存不下」与「被拒绝」。
+- **`refresh()` throws its pre-conditions synchronously.**
+  `NoActiveSessionException`
+  and `RefreshTokenMissingException` now leave the same way as the
+  `manager_disposed` guard instead of coming back as a failed `Future`. For a
+  caller that `await`s, nothing changes — but one that forgets to `await` now sees
+  the error at the call site rather than an unhandled async error.
+  - **`refresh()` 改为同步抛出前置条件失败。** `NoActiveSessionException` 与
+    `RefreshTokenMissingException` 现在与 `manager_disposed` 守卫走同一条出口，而不再
+    以失败的 `Future` 返回。对 `await` 的调用方没有任何变化；但忘记 `await` 的调用方
+    现在会在调用点看到错误，而不是一个未处理的异步错误。
+- **Every read on `AuthManagerGroup` is rejected after `disposeAll()`.**
+  `accountIds`, `activeId`, `active`, `current`, `currentSession`, `accessToken`,
+  `state` and `validAccessToken()` now throw
+  `AuthException(code: 'group_disposed')`, matching `state` — which already did —
+  and the single-manager `manager_disposed` contract.
+  - **`AuthManagerGroup` 在 `disposeAll()` 之后拒绝所有读取。** `accountIds`、
+    `activeId`、`active`、`current`、`currentSession`、`accessToken`、`state` 与
+    `validAccessToken()` 现在都会抛 `AuthException(code: 'group_disposed')`，与早已
+    如此的 `state` 保持一致，也与单管理器的 `manager_disposed` 约定一致。
+
+### Fixed / 修复
+
+- **A transient failure to persist a session no longer leaves the device and the
+  backend out of sync.** The backend rotates first and the device stores
+  afterwards, so a lost write used to leave a dead refresh token behind — which a
+  rotation-aware backend answers by revoking the whole family and signing the user
+  out on the next start.
+  - **持久化会话时的瞬时失败不再让设备与后端失同步。** 后端先轮换、设备后存储，因此一次
+    丢失的写入过去会留下一个已死的刷新令牌 —— 支持轮换的后端会据此吊销整个 family，让
+    用户在下次启动时被登出。
+- **Extreme timing interleavings now have regression tests.** "A renewal landing
+  after `logout()`" and "a renewal still in flight when `dispose()` arrives" are
+  covered by `test/auth_manager_race_test.dart`, which gates the renewal behind a
+  `Completer` instead of racing the event loop.
+  - **极端时序交错现在有了回归测试。** 「续期在 `logout()` 之后落地」与「`dispose()`
+    到达时续期仍在飞行中」由 `test/auth_manager_race_test.dart` 覆盖，它用 `Completer`
+    挡住续期，而不是与事件循环赛跑。
+
 ## 1.0.0
 
 **First stable release / 首个稳定版本.** From here on the public surface follows

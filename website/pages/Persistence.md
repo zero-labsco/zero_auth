@@ -53,7 +53,7 @@ On non-mobile Dart targets you can write the serialized session to a file. A ref
 ```dart
 final auth = AuthManager(
   strategy: myStrategy,
-  tokenStore: FileTokenStore(File('.zero_auth_session.json')),
+  tokenStore: JsonTokenStore(File('.zero_auth_session.json')),
 );
 ```
 
@@ -73,6 +73,43 @@ final auth = AuthManager(
   tokenStore: SecureTokenStore(),
   autoRefreshAhead: const Duration(minutes: 5),
 );
+```
+
+## 5. One owner for renewal / 续期只归一个所有者
+
+`TokenStore` has no cross-isolate or cross-process lock. If two isolates — or an
+app and its share extension — refresh the same refresh token at once, the first
+rotation retires it and the second one reads as a **replay**, which a
+rotation-aware backend answers by revoking the whole family and signing *both*
+out.
+
+`TokenStore` 没有跨 isolate / 跨进程锁。若两个 isolate（或 App 与其共享扩展）同时用
+同一个刷新令牌续期，第一次轮换会让它退役，第二次就会被读成**重放** —— 支持轮换的后端
+会据此吊销整个 family，把**两边**都登出。
+
+Two safe shapes / 两种安全形态：
+
+- **Separate keys** — give every isolate its own `TokenStore` key, so each holds
+  an independent refresh token. / 为每个 isolate 使用独立的 `TokenStore` 键，各自持有
+  独立的刷新令牌。
+- **One owner** — let exactly one isolate own the `AuthManager` and broadcast the
+  token to the rest; everyone else only reads. / 只让一个 isolate 持有 `AuthManager`
+  并把令牌广播给其余；其他 isolate 只读取。
+
+```dart
+// Shape 2: the owner is the only writer — it renews and rotates, then pushes the
+// fresh token over whatever channel you already have (SendPort, socket, …).
+// 形态二：所有者是唯一的写入方 —— 由它续期与轮换，再通过你已有的通道
+// （SendPort、socket 等）把新令牌推给其余。
+final owner = AuthManager(
+  strategy: strategy,
+  tokenStore: store,
+  onStateChanged: (state) => broadcast(state.session?.accessToken),
+);
+
+// Elsewhere: hold the broadcast token and never refresh. No renewal means no
+// rotation race.
+// 其它地方：持有广播来的令牌，且从不刷新。不续期就没有轮换竞争。
 ```
 
 ## Next Steps / 下一步

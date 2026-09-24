@@ -13,7 +13,8 @@ final class UserRecord {
 /// in the backend has to change.
 final class UserStore {
   UserStore({Map<String, String>? credentials})
-      : _credentials = credentials ?? _defaultCredentials;
+      : _credentials =
+            credentials ?? Map<String, String>.of(_defaultCredentials);
 
   static const _defaultCredentials = <String, String>{'user': 'user'};
 
@@ -24,6 +25,24 @@ final class UserStore {
     final expected = _credentials[username];
     if (expected == null || expected != password) return null;
     return UserRecord(id: username, displayName: _displayNameFor(username));
+  }
+
+  /// Creates an account, or returns `null` when the username is taken or the
+  /// credentials are unusable.
+  ///
+  /// The account is added to the same in-memory map [authenticate] and
+  /// [findById] read, so a freshly registered user can log in, refresh and call
+  /// `/me` right away — until the process restarts.
+  UserRecord? register(
+    String username,
+    String password, {
+    String? displayName,
+  }) {
+    final id = username.trim();
+    if (id.isEmpty || password.isEmpty) return null;
+    if (_credentials.containsKey(id)) return null;
+    _credentials[id] = password;
+    return UserRecord(id: id, displayName: displayName ?? _displayNameFor(id));
   }
 
   /// Looks a user up by id, used when rebuilding a user from a valid token.

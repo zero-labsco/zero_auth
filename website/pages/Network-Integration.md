@@ -28,43 +28,50 @@ the single-flight refresh) and returns `null` only when there is nothing to send
 
 ## Dio interceptor / Dio 拦截器
 
-`example/lib/dio_interceptor.dart` ships a ready-to-use interceptor:
+`example/lib/dio_interceptor.dart` ships three ready-to-use interceptors, all of
+which accept the `AuthTokenSource` **interface** rather than an `AuthManager`:
 
-`example/lib/dio_interceptor.dart` 提供了一个开箱即用的拦截器：
+`example/lib/dio_interceptor.dart` 提供了三个开箱即用的拦截器，它们都接受
+`AuthTokenSource` **接口**而非 `AuthManager`：
 
-```dart
-class AuthInterceptor extends Interceptor {
-  AuthInterceptor(this.tokens); // an AuthTokenSource / 一个令牌源
-  final AuthTokenSource tokens;
+| Interceptor | Reads | Use when / 适用场景 |
+|---|---|---|
+| `RefreshingAuthInterceptor` | `validAccessToken()` | The default choice — never sends an expired token / 默认选择，绝不发送过期令牌 |
+| `AuthInterceptor` | `accessToken` | You only need the synchronous read / 只需同步读取 |
+| `AuthRetryInterceptor` | `refresh()` then replay | The backend returns 401 for token issues / 后端对令牌问题返回 401 |
 
-  @override
-  void onRequest(RequestOptions o, RequestInterceptorHandler h) async {
-    final t = await tokens.validAccessToken(); // renews first / 先续期
-    if (t != null) o.headers['Authorization'] = 'Bearer $t';
-    h.next(o);
-  }
-}
-```
+`RefreshingAuthInterceptor` and `AuthRetryInterceptor` extend `QueuedInterceptor`,
+so concurrent requests share one refresh instead of each triggering its own.
 
-> If you only want the synchronous read, use `tokens.accessToken` — but remember
-> it may hand you a token that has already expired.
-> 若只需要同步读取，可用 `tokens.accessToken` —— 但请记住它可能返回一个已过期的令牌。
+`RefreshingAuthInterceptor` 与 `AuthRetryInterceptor` 继承 `QueuedInterceptor`，
+因此并发请求会共享同一次刷新，而不是各自触发一次。
 
 ```dart
 final dio = Dio()
-  ..interceptors.add(AuthInterceptor(authManager));
+  ..interceptors.add(RefreshingAuthInterceptor(authManager));
 ```
 
-When a `401` is returned, refresh the session and retry; if refresh fails, the manager emits `AuthError` and your app routes back to login.
+> `AuthInterceptor` reads the synchronous `accessToken`, which may already be
+> expired. Prefer `RefreshingAuthInterceptor` whenever the token reaches a server.
+>
+> `AuthInterceptor` 读取同步的 `accessToken`，它可能已经过期。只要令牌要发往服务端，
+> 就应优先使用 `RefreshingAuthInterceptor`。
 
-当返回 `401` 时，刷新会话并重试；若刷新失败，管理器会发出 `AuthError`，应用随之跳转登录。
+### Handling `401` / 处理 401
 
-`example/lib/dio_interceptor.dart` also ships `AuthRetryInterceptor`, which does
-exactly that — refreshes through the manager (single-flight) and replays the
-request **once**, so a retry loop cannot form:
+When a `401` comes back, refresh the session and replay the request once. A failed
+refresh always emits `AuthError`, but it does **not** necessarily end the session:
+`refreshFailurePolicy` decides whether the failure is terminal (clear the session,
+route back to login) or transient (keep the session and retry later).
 
-`example/lib/dio_interceptor.dart` 里还提供了 `AuthRetryInterceptor`，正是做这件事 ——
-通过管理器刷新（单飞）并把请求**重试一次**，因此不会形成重试风暴：
+当返回 `401` 时，刷新会话并把请求重放一次。刷新失败总会发出 `AuthError`，但**不一定**
+终止会话：由 `refreshFailurePolicy` 判定失败是终局的（清空会话、跳转登录）还是瞬时的
+（保留会话、稍后重试）。
+
+`AuthRetryInterceptor` does exactly that, and guards against a retry loop with a
+per-request `retried` flag:
+
+`AuthRetryInterceptor` 正是做这件事，并用 per-request 的 `retried` 标记防止重试风暴：
 
 ```dart
 final dio = Dio()
@@ -72,12 +79,6 @@ final dio = Dio()
     AuthRetryInterceptor(manager: authManager, dio: dio),
   );
 ```
-
-Two more interceptor variants there / 那里还有另外两种拦截器：
-
-- `RefreshingAuthInterceptor` — never sends an expired token: it renews first via
-  `validAccessToken()` / 绝不发送过期令牌，先用 `validAccessToken()` 续期。
-- `AuthInterceptor` — the plain `AuthTokenSource` version / 基础的令牌源版本。
 
 ## Other HTTP clients / 其它客户端
 

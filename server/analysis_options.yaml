@@ -3,9 +3,6 @@
 # dependency here (resolving it fails and floods every `dart` command with a
 # package-resolution warning). The rules below mirror the root set, minus the
 # Flutter-only ones.
-# 演示后端是独立 package，因此不能继承根目录配置：根配置
-# `include: package:flutter_lints/flutter.yaml`，而本包并未依赖它（解析失败会让每条
-# `dart` 命令都刷一遍包解析告警）。下面的规则与根包保持一致，去掉了仅 Flutter 适用的项。
 
 analyzer:
   language:

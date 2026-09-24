@@ -41,8 +41,25 @@ class _DemoStrategy implements AuthStrategy {
   }
 
   @override
-  Future<AuthSession> register(RegistrationInput input) async =>
-      login(Credentials(username: input.username, password: input.password));
+  Future<AuthSession> register(RegistrationInput input) async {
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    final username = input.username.trim();
+    if (username.isEmpty || input.password.isEmpty) {
+      throw AuthException(
+        'Username and password are required',
+        code: 'invalid_credentials',
+      );
+    }
+    // The double keeps no user database, so any new pair is accepted — that is
+    // what makes the registration path reachable without a server.
+    return AuthSession(
+      accessToken: 'demo-access-${DateTime.now().millisecondsSinceEpoch}',
+      refreshToken: const RefreshToken('demo-refresh-token'),
+      expiresAt: DateTime.now().add(const Duration(minutes: 2)),
+      userId: username,
+      displayName: input.displayName ?? '$username@demo',
+    );
+  }
 
   @override
   Future<void> logout(SessionHandle handle) async {}
@@ -90,8 +107,21 @@ class _HttpAuthStrategy implements AuthStrategy {
   }
 
   @override
-  Future<AuthSession> register(RegistrationInput input) async =>
-      login(Credentials(username: input.username, password: input.password));
+  Future<AuthSession> register(RegistrationInput input) async {
+    try {
+      final res = await _dio.post<Map<String, dynamic>>(
+        '$baseUrl/register',
+        data: {
+          'username': input.username,
+          'password': input.password,
+          if (input.displayName != null) 'displayName': input.displayName,
+        },
+      );
+      return _toSession(_data(res));
+    } catch (e) {
+      throw _mapError(e);
+    }
+  }
 
   @override
   Future<void> logout(SessionHandle handle) async {
@@ -294,6 +324,14 @@ class _DemoAppState extends State<DemoApp> {
                         username: _username.text, password: _password.text),
                   ),
                 ),
+                onRegister: () => _invoke(
+                  () => _auth.register(
+                    RegistrationInput(
+                      username: _username.text,
+                      password: _password.text,
+                    ),
+                  ),
+                ),
                 onRefresh: () => _invoke(() => _auth.refresh()),
                 onLogout: () => _invoke(() => _auth.logout()),
                 onCallMe: () => _callMe(context),
@@ -330,6 +368,7 @@ class _DemoBody extends StatelessWidget {
     required this.password,
     required this.onToggleBackend,
     required this.onLogin,
+    required this.onRegister,
     required this.onRefresh,
     required this.onLogout,
     required this.onCallMe,
@@ -346,6 +385,7 @@ class _DemoBody extends StatelessWidget {
   final TextEditingController password;
   final ValueChanged<bool> onToggleBackend;
   final VoidCallback onLogin;
+  final VoidCallback onRegister;
   final VoidCallback onRefresh;
   final VoidCallback onLogout;
   final VoidCallback onCallMe;
@@ -389,12 +429,16 @@ class _DemoBody extends StatelessWidget {
                   password: password,
                   busy: state?.isBusy ?? false,
                   onLogin: onLogin,
+                  onRegister: onRegister,
                 )
               else
                 _SessionCard(
                   auth: auth,
                   session: session,
                   busy: state?.isBusy ?? false,
+                  // /me only exists on the real backend; the offline double has
+                  // no server to call.
+                  useBackend: useBackend,
                   onCallMe: onCallMe,
                   onRefresh: onRefresh,
                   onLogout: onLogout,
@@ -772,12 +816,14 @@ class _LoginCard extends StatefulWidget {
     required this.password,
     required this.busy,
     required this.onLogin,
+    required this.onRegister,
   });
 
   final TextEditingController username;
   final TextEditingController password;
   final bool busy;
   final VoidCallback onLogin;
+  final VoidCallback onRegister;
 
   @override
   State<_LoginCard> createState() => _LoginCardState();
@@ -850,6 +896,16 @@ class _LoginCardState extends State<_LoginCard> {
                     )
                   : const Text('Log in'),
             ),
+            const SizedBox(height: 12),
+            // Registration goes through the same state machine as login; the
+            // backend decides whether the username is free.
+            OutlinedButton(
+              onPressed: widget.busy ? null : widget.onRegister,
+              style: OutlinedButton.styleFrom(
+                minimumSize: const Size.fromHeight(48),
+              ),
+              child: const Text('Register instead'),
+            ),
           ],
         ),
       ),
@@ -863,6 +919,7 @@ class _SessionCard extends StatelessWidget {
     required this.auth,
     required this.session,
     required this.busy,
+    required this.useBackend,
     required this.onCallMe,
     required this.onRefresh,
     required this.onLogout,
@@ -871,6 +928,9 @@ class _SessionCard extends StatelessWidget {
   final AuthManager auth;
   final AuthSession session;
   final bool busy;
+
+  /// `false` for the offline double, which has no `/me` to call.
+  final bool useBackend;
   final VoidCallback onCallMe;
   final VoidCallback onRefresh;
   final VoidCallback onLogout;
@@ -895,13 +955,22 @@ class _SessionCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 16),
-            FilledButton(
-              onPressed: onCallMe,
-              style: FilledButton.styleFrom(
-                minimumSize: const Size.fromHeight(48),
+            if (useBackend)
+              FilledButton(
+                onPressed: onCallMe,
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                child: const Text('Call /me'),
+              )
+            else
+              Text(
+                'Switch to the live backend to call /me — the offline double '
+                'has no server behind it.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colors.onSurfaceVariant,
+                ),
               ),
-              child: const Text('Call /me'),
-            ),
             const SizedBox(height: 12),
             // Wrap keeps actions side by side on wide screens and stacked on
             // narrow ones, without overflowing either way.

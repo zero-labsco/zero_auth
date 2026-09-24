@@ -14,9 +14,9 @@ abstract class TokenStore {
 }
 ```
 
-`AuthManager` calls `load()` during `restore()`, `save()` after every successful login/refresh, and `clear()` on logout or a failed refresh.
+`AuthManager` calls `load()` during `restore()`, `save()` after every successful login/refresh/update, and `clear()` on logout — or when a refresh failure is **terminal** per `refreshFailurePolicy`. A transient failure keeps the stored session so a later call can retry.
 
-`AuthManager` 在 `restore()` 时调用 `load()`，每次登录/刷新成功后调用 `save()`，在登出或刷新失败失败时调用 `clear()`。
+`AuthManager` 在 `restore()` 时调用 `load()`，每次登录 / 刷新 / 更新成功后调用 `save()`，登出时调用 `clear()` —— 或当刷新失败被 `refreshFailurePolicy` 判定为**终局**失败时。瞬时失败会保留已存储会话，以便稍后重试。
 
 ## In-memory (ships in-core) / 内存实现（内核自带）
 

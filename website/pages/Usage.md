@@ -47,20 +47,29 @@ await for (final state in auth.state) {
 
 | Method | Description |
 |--------|-------------|
-| `restore()` | Rehydrate the persisted session at startup / 启动时恢复会话 |
-| `login(username, password)` | Authenticate and enter `Authenticated` / 登录并进入已认证 |
-| `register(username, password)` | Register and authenticate / 注册并认证 |
-| `logout()` | Clear the session / 清除会话 |
+| `restore({refreshIfExpired = true})` | Rehydrate the persisted session at startup / 启动时恢复会话 |
+| `login(Credentials)` | Authenticate and enter `Authenticated` / 登录并进入已认证 |
+| `register(RegistrationInput)` | Register and authenticate / 注册并认证 |
+| `logout()` | Notify the backend, clear the session, emit `Unauthenticated` / 通知后端、清除会话并发 `Unauthenticated` |
 | `refresh()` | Silent token refresh — concurrent calls share one flight / 静默刷新，并发共享单飞 |
-| `tokenSource` | An `AuthTokenSource` for HTTP clients / 供 HTTP 客户端使用的令牌源 |
+| `updateSession(update)` | Replace the active session without a re-login / 无需重新登录即可替换会话 |
+| `loginWith(flow)` | Adopt a session from a flow you drive yourself (OAuth, magic link…) / 接纳自行驱动流程产生的会话 |
+| `accessToken` | The current token, possibly already expired / 当前令牌，可能已过期 |
+| `validAccessToken({leeway})` | A token guaranteed unexpired, renewing first when needed / 保证未过期的令牌，必要时先续期 |
+
+`AuthManager` itself **is** an `AuthTokenSource`, so there is no separate `tokenSource` member to reach for: pass the manager (or the narrower interface) straight to your HTTP layer.
+
+`AuthManager` 本身**就是** `AuthTokenSource`，因此并不存在单独的 `tokenSource` 成员：把管理器（或更窄的接口）直接交给网络层即可。
 
 ## Token refresh & expiry / 令牌刷新与过期
 
 `AuthSession` exposes `isExpired` so callers can refresh proactively. `refresh()` is single-flight: if several callers request a refresh at once, only one network call is made and its result is shared.
 
-`AuthSession` 提供 `isExpired`，调用方可主动刷新。`refresh()` 为单飞：多个调用方同时请求刷新时，只发起一次网络调用并共享结果。 A failed refresh clears the session and emits `AuthError`.
+`AuthSession` 提供 `isExpired`，调用方可主动刷新。`refresh()` 为单飞：多个调用方同时请求刷新时，只发起一次网络调用并共享结果。
 
-刷新失败会清空会话并发出 `AuthError`。
+A failed refresh always emits `AuthError` first, but it does **not** necessarily end the session. `refreshFailurePolicy` decides: a **terminal** failure (`SessionExpiredException`, `InvalidCredentialsException` by default) clears the stored session and lands on `Unauthenticated`, while a **transient** one (network hiccup, 5xx) keeps the session so a later call can retry.
+
+刷新失败总是先发出 `AuthError`，但**不一定**终止会话。由 `refreshFailurePolicy` 决定：**终局**失败（默认 `SessionExpiredException`、`InvalidCredentialsException`）会清空存储的会话并落到 `Unauthenticated`；**瞬时**失败（网络抖动、5xx）则保留会话，供稍后重试。
 
 ## Attaching the bearer token / 附加 Bearer 令牌
 

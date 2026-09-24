@@ -25,15 +25,28 @@ final class AuthController {
 
     switch (auth.login(username, password)) {
       case AuthOk(:final value):
-        await sendJson(request, 200, {
-          'accessToken': value.accessToken,
-          'refreshToken': value.refreshToken,
-          'expiresIn': value.expiresIn,
-          'userId': value.user.id,
-          'displayName': value.user.displayName,
-        });
+        await _sendTokens(request, value);
       case AuthErr(:final failure):
         await _fail(request, 401, failure);
+    }
+  }
+
+  /// POST /register, body: {username, password, displayName?}
+  ///
+  /// The account lives in the in-memory [UserStore], so it disappears when the
+  /// process restarts — which is all the demo needs.
+  Future<void> register(HttpRequest request) async {
+    final body = await readJsonBody(request);
+    final username = (body['username'] as String?)?.trim() ?? '';
+    final password = body['password'] as String? ?? '';
+    final displayName = body['displayName'] as String?;
+
+    switch (auth.register(username, password, displayName: displayName)) {
+      case AuthOk(:final value):
+        await _sendTokens(request, value);
+      case AuthErr(:final failure):
+        // 409, not 401: the caller is not unauthenticated, the name is taken.
+        await _fail(request, 409, failure);
     }
   }
 
@@ -55,13 +68,7 @@ final class AuthController {
 
     switch (auth.refresh(token)) {
       case AuthOk(:final value):
-        await sendJson(request, 200, {
-          'accessToken': value.accessToken,
-          'refreshToken': value.refreshToken,
-          'expiresIn': value.expiresIn,
-          'userId': value.user.id,
-          'displayName': value.user.displayName,
-        });
+        await _sendTokens(request, value);
       case AuthErr(:final failure):
         await _fail(request, 401, failure);
     }
@@ -115,6 +122,16 @@ final class AuthController {
       'activeRefreshTokens': auth.refreshTokens.activeCount,
     });
   }
+
+  /// Shared token-pair shape for `/login`, `/register` and `/refresh`.
+  Future<void> _sendTokens(HttpRequest request, AuthSuccess value) =>
+      sendJson(request, 200, {
+        'accessToken': value.accessToken,
+        'refreshToken': value.refreshToken,
+        'expiresIn': value.expiresIn,
+        'userId': value.user.id,
+        'displayName': value.user.displayName,
+      });
 
   Future<void> _fail(
     HttpRequest request,

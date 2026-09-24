@@ -16,6 +16,7 @@ final class AuthServer {
   AuthServer({required this.config, required this.logger, required this.auth}) {
     _router
       ..post('/login', _controller.login)
+      ..post('/register', _controller.register)
       ..post('/refresh', _controller.refresh)
       ..post('/logout', _controller.logout)
       ..get('/me', _controller.me)
@@ -79,7 +80,7 @@ final class AuthServer {
         'Set DEMO_SECRET before sharing this server.',
       );
     }
-    logger.info('demo credentials: user / user');
+    logger.info('demo credentials: user / user; POST /register adds more');
 
     server.listen(
       _handle,

@@ -106,6 +106,29 @@ final class AuthService {
     return AuthOk(_issue(user));
   }
 
+  /// Creates an account and returns its first token pair.
+  ///
+  /// Fails with `username_taken` when the name is already registered, which the
+  /// client maps onto `InvalidCredentialsException`-style handling.
+  AuthResult register(
+    String username,
+    String password, {
+    String? displayName,
+  }) {
+    final user = users.register(username, password, displayName: displayName);
+    if (user == null) {
+      logger.warn('registration rejected for username="$username"');
+      return const AuthErr(
+        AuthFailure(
+          code: 'username_taken',
+          message: 'Username is already taken, or the credentials are empty',
+        ),
+      );
+    }
+    logger.info('registration succeeded user=${user.id}');
+    return AuthOk(_issue(user));
+  }
+
   AuthResult refresh(String refreshToken) {
     final rotation = refreshTokens.rotate(refreshToken);
     if (rotation == null) {

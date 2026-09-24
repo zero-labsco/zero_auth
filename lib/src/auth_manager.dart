@@ -123,6 +123,8 @@ final class AuthManager implements AuthTokenSource {
     Duration? clockSkew,
     this.preserveSessionDetails = true,
     this.onStateChanged,
+    this.onObserverError,
+    this.clockSkewFraction = 0.25,
   })  : tokenStore = tokenStore ?? InMemoryTokenStore(),
         _autoRefreshAhead = autoRefreshAhead,
         _autoRefreshRetryDelay =
@@ -158,6 +160,21 @@ final class AuthManager implements AuthTokenSource {
   /// 那次请求自身的网络延迟。默认 30 秒。
   final Duration clockSkew;
 
+  /// Caps [clockSkew] at this fraction of the **observed token lifetime**, so a
+  /// backend handing out very short-lived tokens does not turn one request into
+  /// one renewal. Defaults to `0.25`; pass `double.infinity` to keep the full
+  /// [clockSkew] regardless of how short the tokens are.
+  ///
+  /// A 5–15 minute access token is unaffected — a quarter of its lifetime is far
+  /// larger than 30s — so the common case is unchanged.
+  /// 把 [clockSkew] 钳制为**观测到的令牌寿命**的这个比例，避免签发极短寿命令牌的后端
+  /// 把「一次请求」变成「一次续期」。默认 `0.25`；传 `double.infinity` 则无论令牌多短
+  /// 都保留完整的 [clockSkew]。
+  ///
+  /// 5–15 分钟的访问令牌不受影响 —— 其寿命的四分之一远大于 30 秒 —— 因此常见场景
+  /// 行为不变。
+  final double clockSkewFraction;
+
   /// Whether identity fields survive a refresh that only returns tokens.
   /// Defaults to `true`.
   /// 身份字段是否在「只返回令牌」的刷新中保留。默认 `true`。
@@ -170,6 +187,19 @@ final class AuthManager implements AuthTokenSource {
   /// Optional observer of every state change.
   /// 可选的状态变化观察者。
   final void Function(AuthState state)? onStateChanged;
+
+  /// Called when [onStateChanged] throws, so a broken logger or analytics sink
+  /// is no longer invisible. Silent by default — omit it and the error stays
+  /// swallowed, exactly as before.
+  ///
+  /// It runs after the state has already reached the stream, and its own errors
+  /// are swallowed too: reporting must never break authentication.
+  /// 当 [onStateChanged] 抛异常时调用，使坏掉的日志 / 埋点不再无声失败。默认静默 ——
+  /// 不传该回调时错误仍像过去一样被吞掉。
+  ///
+  /// 它在状态已经发到流上之后才执行，且它自己抛出的错误也会被吞掉：上报绝不能破坏
+  /// 认证流程。
+  final void Function(Object error, StackTrace stack)? onObserverError;
 
   /// Guards against overlapping login / register / loginWith calls.
   /// 防止 login / register / loginWith 重叠调用。
@@ -187,14 +217,61 @@ final class AuthManager implements AuthTokenSource {
 
   static DateTime _systemClock() => DateTime.now();
 
-  /// `now` shifted forward by [clockSkew] — the instant a token must still be
-  /// valid at to be handed out.
-  /// 把 `now` 前移 [clockSkew] 后的时刻；令牌要能发出，就必须在该时刻仍然有效。
-  DateTime _expiryNow() => clock().add(clockSkew);
+  /// The effective skew for [session]: [clockSkew], capped at
+  /// [clockSkewFraction] of the token lifetime seen so far.
+  ///
+  /// A long-lived token is unaffected — a quarter of a 5–15 minute lifetime is
+  /// far larger than the skew — so the common case is unchanged. The cap only
+  /// bites for backends that hand out very short-lived tokens, where a full 30s
+  /// skew would otherwise renew on almost every read.
+  /// [session] 的有效容差：[clockSkew]，并以目前观测到的令牌寿命的 [clockSkewFraction]
+  /// 为上限。
+  ///
+  /// 长寿命令牌不受影响 —— 5–15 分钟寿命的四分之一远大于容差 —— 因此常见场景行为不变。
+  /// 该上限只作用于签发极短寿命令牌的后端：在那里完整的 30 秒容差会让几乎每次读取都
+  /// 触发续期。
+  Duration _skewFor(AuthSession session) {
+    final lifetime = _observedLifetime;
+    if (lifetime == null || clockSkew <= Duration.zero) return clockSkew;
+
+    final cap = lifetime.inMicroseconds * clockSkewFraction;
+    if (cap >= clockSkew.inMicroseconds) return clockSkew;
+    return Duration(microseconds: cap.toInt());
+  }
+
+  /// The longest token lifetime seen so far, observed whenever a freshly issued
+  /// session is installed.
+  ///
+  /// `AuthSession` carries an expiry but not a lifetime, so the manager watches
+  /// what it is handed: a session installed right after it was minted still has
+  /// (almost) its whole life ahead of it. The maximum is kept rather than the
+  /// latest value, so a session restored half-way through its life cannot shrink
+  /// the cap.
+  /// 目前观测到的最长令牌寿命，每当安装一个新签发的会话时观测一次。
+  ///
+  /// `AuthSession` 带过期时间但不带寿命，因此管理器观察拿到手的东西：刚签发就被安装的
+  /// 会话，其剩余时间（几乎）就是完整寿命。这里保留的是最大值而非最新值，因此一个
+  /// 在生命周期中途被恢复的会话不会让上限变小。
+  Duration? _observedLifetime;
+
+  void _observeLifetime(AuthSession session) {
+    final expiry = session.expiresAt;
+    if (expiry == null) return;
+    final observed = expiry.difference(clock());
+    if (observed > (_observedLifetime ?? Duration.zero)) {
+      _observedLifetime = observed;
+    }
+  }
+
+  /// `now` shifted forward by the effective skew — the instant a token must still
+  /// be valid at to be handed out.
+  /// 把 `now` 前移有效容差后的时刻；令牌要能发出，就必须在该时刻仍然有效。
+  DateTime _expiryNow(AuthSession session) => clock().add(_skewFor(session));
 
   /// Whether [session] must be considered expired, tolerating [clockSkew].
   /// [session] 是否应被视为已过期（计入 [clockSkew]）。
-  bool _isExpired(AuthSession session) => session.isExpiredAt(_expiryNow());
+  bool _isExpired(AuthSession session) =>
+      session.isExpiredAt(_expiryNow(session));
 
   /// The current state (always available, replay-last).
   /// 当前状态（始终可用，重放最近值）。
@@ -371,6 +448,37 @@ final class AuthManager implements AuthTokenSource {
     }
   }
 
+  /// Persists [session], retrying once before giving up.
+  ///
+  /// A secure-storage write can fail transiently (a full Keychain, a permission
+  /// change mid-write). Losing the write outright is worse than the failure
+  /// itself: the backend has already rotated, so the device is left holding a
+  /// refresh token the server will reject — and, on a rotation-aware backend,
+  /// treat as a replay. One retry covers the transient case, and the dedicated
+  /// `session_persist_failed` code makes whatever remains diagnosable.
+  /// 持久化 [session]，放弃前重试一次。
+  ///
+  /// 安全存储的写入可能瞬时失败（Keychain 已满、写入过程中权限变化）。直接丢失这次写入
+  /// 比失败本身更糟：后端已经完成轮换，设备手里只剩一个服务端会拒绝的刷新令牌 —— 在
+  /// 支持轮换的后端上还会被当作重放。一次重试覆盖瞬时情况，而专门的
+  /// `session_persist_failed` code 让其余情况可诊断。
+  Future<void> _persist(AuthSession session) async {
+    Object? firstError;
+    for (var attempt = 0; attempt < 2; attempt++) {
+      try {
+        await tokenStore.save(session);
+        return;
+      } catch (e) {
+        firstError ??= e;
+      }
+    }
+    throw AuthException(
+      'The session could not be persisted',
+      code: 'session_persist_failed',
+      cause: firstError,
+    );
+  }
+
   /// Log in: emits [Authenticating] → [Authenticated] (or [AuthError] on failure).
   /// 登录：先发 [Authenticating]，成功发 [Authenticated]，失败发 [AuthError]。
   Future<Authenticated> login(Credentials credentials) async {
@@ -384,7 +492,7 @@ final class AuthManager implements AuthTokenSource {
     try {
       final session = await strategy.login(credentials);
       _ensureCurrent(epoch);
-      await tokenStore.save(session);
+      await _persist(session);
       final next = Authenticated(session);
       _activate(session);
       return next;
@@ -410,7 +518,7 @@ final class AuthManager implements AuthTokenSource {
     try {
       final session = await strategy.register(input);
       _ensureCurrent(epoch);
-      await tokenStore.save(session);
+      await _persist(session);
       final next = Authenticated(session);
       _activate(session);
       return next;
@@ -448,7 +556,7 @@ final class AuthManager implements AuthTokenSource {
     try {
       final session = await flow(strategy);
       _ensureCurrent(epoch);
-      await tokenStore.save(session);
+      await _persist(session);
       final next = Authenticated(session);
       _activate(session);
       return next;
@@ -494,17 +602,11 @@ final class AuthManager implements AuthTokenSource {
     _invalidateInFlight();
     final epoch = _epoch;
 
-    try {
-      await tokenStore.save(updated);
-    } catch (e) {
-      // Persistence is part of the contract: a store failure must leave through
-      // the same AppException doorway as everything else.
-      // 持久化属于契约的一部分：存储失败必须和其它失败一样，从 AppException 这道门出去。
-      throw UnexpectedAuthException(
-        message: 'Failed to persist the updated session',
-        cause: e,
-      );
-    }
+    // Persisting is part of the contract: a store failure must leave through the
+    // same AppException doorway as everything else (and retries once first).
+    // 持久化属于契约的一部分：存储失败必须和其它失败一样，从 AppException 这道门出去
+    // （并且会先重试一次）。
+    await _persist(updated);
 
     // The session could have been invalidated while saving; do not leave a
     // session behind after a logout.
@@ -584,15 +686,25 @@ final class AuthManager implements AuthTokenSource {
 
   /// Refresh the session. Concurrent callers share a single backend call
   /// (single-flight). Emits [Refreshing] while in flight.
+  ///
+  /// Throws [NoActiveSessionException] when nothing is signed in and
+  /// [RefreshTokenMissingException] when the session carries no refresh token.
+  /// Both are thrown **synchronously**, like the `manager_disposed` guard, so a
+  /// caller that forgets to `await` still sees the failure instead of an
+  /// unhandled async error.
   /// 刷新会话。并发调用方共享同一次后端调用（单飞），期间发出 [Refreshing]。
+  ///
+  /// 未登录时抛 [NoActiveSessionException]，会话没有刷新令牌时抛
+  /// [RefreshTokenMissingException]。两者都是**同步**抛出（与 `manager_disposed`
+  /// 守卫一致），因此忘记 `await` 的调用方也会看到失败，而不是一个未处理的异步错误。
   Future<AuthSession> refresh() {
     _checkUsable();
     final session = _activeSession;
     if (session == null) {
-      return Future<AuthSession>.error(NoActiveSessionException());
+      throw NoActiveSessionException();
     }
     if (session.refreshToken == null) {
-      return Future<AuthSession>.error(RefreshTokenMissingException());
+      throw RefreshTokenMissingException();
     }
     return _startRefresh(session);
   }
@@ -614,7 +726,7 @@ final class AuthManager implements AuthTokenSource {
     _checkUsable();
     final session = currentSession;
     if (session == null) return null;
-    if (!session.isExpiredAt(clock().add(leeway ?? clockSkew))) {
+    if (!session.isExpiredAt(clock().add(leeway ?? _skewFor(session)))) {
       return session.accessToken;
     }
 
@@ -767,7 +879,7 @@ final class AuthManager implements AuthTokenSource {
         return;
       }
       final refreshed = _mergeRefreshed(session, renewed);
-      await tokenStore.save(refreshed);
+      await _persist(refreshed);
       _activate(refreshed);
       completer.complete(refreshed);
     } catch (e) {
@@ -833,6 +945,7 @@ final class AuthManager implements AuthTokenSource {
   }
 
   void _activate(AuthSession session, {bool scheduleProactive = true}) {
+    _observeLifetime(session);
     _emit(Authenticated(session));
     if (scheduleProactive) _scheduleAutoRefresh(session);
   }
@@ -915,9 +1028,19 @@ final class AuthManager implements AuthTokenSource {
     if (observer == null) return;
     try {
       observer(state);
-    } catch (_) {
-      // Deliberately swallowed — logging or analytics must never break auth.
-      // 有意吞掉 —— 日志或埋点绝不能破坏认证流程。
+    } catch (e, stack) {
+      // Still swallowed — the state has already reached the stream, so a broken
+      // observer must never break auth. It is no longer *silent*, though.
+      // 依然吞掉 —— 状态已经发到流上，坏掉的观察者绝不能破坏认证流程。只是它不再
+      // **无声**。
+      final report = onObserverError;
+      if (report == null) return;
+      try {
+        report(e, stack);
+      } catch (_) {
+        // Reporting must never break auth either.
+        // 上报本身同样绝不能破坏认证流程。
+      }
     }
   }
 }

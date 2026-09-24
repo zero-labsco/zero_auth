@@ -84,7 +84,12 @@ group.accessToken        // active account's token / 激活账号的令牌
 group.state              // stream that follows the active account / 跟随激活账号的流
 group.activeIdChanges    // stream of the active account id / 激活账号 id 的流
 
-await group.validAccessToken(); // renewed token of the active account / 激活账号续期后的令牌
+group.accountIds         // Iterable<String> the group currently owns / 分组当前持有的账号 id
+group.activeId           // String? — null when no account is active / 无激活账号时为 null
+group.active             // AuthManager? — null when no account is active / 激活账号的管理器
+
+// leeway defaults to the manager's clockSkew / leeway 默认取管理器的 clockSkew
+await group.validAccessToken(leeway: const Duration(seconds: 10));
 
 dio.interceptors.add(RefreshingAuthInterceptor(group)); // renews then attaches / 先续期再附加
 ```
@@ -95,12 +100,22 @@ dio.interceptors.add(RefreshingAuthInterceptor(group)); // renews then attaches 
 // `knownIds` comes from your own saved-account list.
 // `knownIds` 来自你自己保存的账号列表。
 await group.restoreAll(knownIds, activeId: lastUsedId);
+
+// Restore only the known ones and release everything else.
+// 只恢复已知账号，并释放其余所有管理器。
+await group.restoreAll(knownIds, activeId: lastUsedId, dropOthers: true);
 ```
 
 One account failing to restore does not abandon the rest: every account is
 attempted and the first error is thrown at the end.
 
 某个账号恢复失败不会连累其余账号：所有账号都会被尝试，最后统一抛出第一个错误。
+
+`dropOthers: true` disposes the managers of every id that is **not** in the list
+you pass — use it when the saved-account list shrank while the app was running.
+
+`dropOthers: true` 会释放**不在**你传入列表中的所有 id 的管理器 —— 当应用运行期间
+已保存账号列表变短时使用。
 
 ### Adding accounts explicitly / 显式新增账号
 
@@ -158,6 +173,14 @@ id，并且对所有现有用户构成破坏性变更。让 `AuthManager` 保持
   background. / 切换不会登出任何账号，所有管理器仍会在后台续期。
 - `remove()` also disposes that manager — do not use it afterwards. /
   `remove()` 会同时释放该管理器，之后不要再使用它。
+- Always release accounts through `remove(id)` / `disposeAll()`. A manager you
+  dispose **yourself** is forgotten by the group — including when it was the
+  active one, which sets `activeId` back to `null`. /
+  始终通过 `remove(id)` / `disposeAll()` 释放账号。你**自己** dispose 的管理器会被
+  分组遗忘 —— 若它正是激活账号，`activeId` 会被置回 `null`。
+- After `disposeAll()` the group rejects further use with
+  `AuthException(code: 'group_disposed')`. /
+  `disposeAll()` 之后，分组会以 `AuthException(code: 'group_disposed')` 拒绝继续使用。
 
 ## Next Steps / 下一步
 

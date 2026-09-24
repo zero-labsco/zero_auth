@@ -163,7 +163,25 @@ void main() {
 
     test('throws without a session', () async {
       final manager = AuthManager(strategy: FakeAuthStrategy());
-      expect(manager.refresh(), throwsA(isA<AuthException>()));
+      // Wrapped in a closure: `refresh()` rejects synchronous pre-conditions
+      // (no session, no refresh token, disposed) by throwing, not by returning
+      // a failed Future.
+      expect(() => manager.refresh(), throwsA(isA<NoActiveSessionException>()));
+    });
+
+    test('throws synchronously when the session has no refresh token',
+        () async {
+      final manager = AuthManager(
+        strategy: FakeAuthStrategy(
+          session: const AuthSession(accessToken: 'access-only'),
+        ),
+      );
+      await manager.login(const Credentials(username: 'a', password: 'b'));
+
+      expect(
+        () => manager.refresh(),
+        throwsA(isA<RefreshTokenMissingException>()),
+      );
     });
   });
 

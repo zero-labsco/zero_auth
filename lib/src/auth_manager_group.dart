@@ -60,6 +60,7 @@ final class AuthManagerGroup implements AuthTokenSource {
     this.clockSkew,
     this.preserveSessionDetails = true,
     this.onStateChanged,
+    this.onObserverError,
   })  : _strategyFactory = strategyFactory,
         _storeFactory = storeFactory;
 
@@ -97,6 +98,14 @@ final class AuthManagerGroup implements AuthTokenSource {
   /// 任一账号的管理器发出状态时调用，并带上来源账号。便于跨账号做日志或埋点。
   final void Function(String accountId, AuthState state)? onStateChanged;
 
+  /// Called when that observer throws, tagged with the account whose observer it
+  /// was. Forwarded to every manager the group creates, so a failing sink is
+  /// reported instead of failing silently. Silent when omitted.
+  /// 当该观察者抛异常时调用，并带上观察者所属的账号。它会转发给分组创建的每个管理器，
+  /// 因此坏掉的日志 / 埋点会被上报而不是静默失败；不传则保持静默。
+  final void Function(String accountId, Object error, StackTrace stack)?
+      onObserverError;
+
   final Map<String, AuthManager> _managers = {};
   final StreamController<AuthState> _controller =
       StreamController<AuthState>.broadcast();
@@ -120,16 +129,32 @@ final class AuthManagerGroup implements AuthTokenSource {
   }
 
   /// Ids currently owned by the group.
+  ///
+  /// Like every other read here, this rejects use after [disposeAll] with
+  /// `AuthException(code: 'group_disposed')`, so a released group never answers
+  /// with stale data.
   /// 分组当前持有的账号 id。
-  Iterable<String> get accountIds => _managers.keys;
+  ///
+  /// 与这里的其它读取一样，[disposeAll] 之后会以
+  /// `AuthException(code: 'group_disposed')` 拒绝使用，已释放的分组不会再用过期数据作答。
+  Iterable<String> get accountIds {
+    _checkUsable();
+    return _managers.keys;
+  }
 
   /// The active account id, or `null` when none is active.
   /// 当前激活的账号 id；没有激活账号时为 `null`。
-  String? get activeId => _activeId;
+  String? get activeId {
+    _checkUsable();
+    return _activeId;
+  }
 
   /// The active account's manager, or `null` when none is active.
   /// 激活账号的管理器；没有激活账号时为 `null`。
-  AuthManager? get active => _activeId == null ? null : _managers[_activeId];
+  AuthManager? get active {
+    _checkUsable();
+    return _activeId == null ? null : _managers[_activeId];
+  }
 
   /// Returns the manager for [accountId], creating it on first use.
   /// 返回 [accountId] 对应的管理器，首次使用时创建。
@@ -145,6 +170,7 @@ final class AuthManagerGroup implements AuthTokenSource {
     if (factory != null) return factory(accountId, strategy, store);
 
     final observer = onStateChanged;
+    final report = onObserverError;
     return AuthManager(
       strategy: strategy,
       tokenStore: store,
@@ -158,6 +184,9 @@ final class AuthManagerGroup implements AuthTokenSource {
       preserveSessionDetails: preserveSessionDetails,
       onStateChanged:
           observer == null ? null : (state) => observer(accountId, state),
+      onObserverError: report == null
+          ? null
+          : (error, stack) => report(accountId, error, stack),
     );
   }
 
@@ -211,20 +240,30 @@ final class AuthManagerGroup implements AuthTokenSource {
 
   /// The active account's state, or [Unauthenticated] when none is active.
   /// 激活账号的状态；没有激活账号时为 [Unauthenticated]。
-  AuthState get current => active?.current ?? const Unauthenticated();
+  AuthState get current {
+    _checkUsable();
+    return active?.current ?? const Unauthenticated();
+  }
 
   /// The active account's session, or `null`.
   /// 激活账号的会话；无则为 `null`。
-  AuthSession? get currentSession => active?.currentSession;
+  AuthSession? get currentSession {
+    _checkUsable();
+    return active?.currentSession;
+  }
 
   @override
-  String? get accessToken => active?.accessToken;
+  String? get accessToken {
+    _checkUsable();
+    return active?.accessToken;
+  }
 
   /// The active account's guaranteed-valid token, or `null` when none is active
   /// (or renewal failed and the session was dropped).
   /// 激活账号「保证有效」的令牌；无激活账号（或续期失败导致会话被丢弃）时为 `null`。
   @override
   Future<String?> validAccessToken({Duration? leeway}) async {
+    _checkUsable();
     final manager = active;
     if (manager == null) return null;
     return manager.validAccessToken(leeway: leeway);
@@ -260,13 +299,25 @@ final class AuthManagerGroup implements AuthTokenSource {
   ///
   /// One account failing to restore does not abandon the rest: they are all
   /// attempted and the first error is reported at the end.
+  ///
+  /// [parallel] (default `false`) restores them concurrently instead of one
+  /// after another. Startup cost becomes the slowest store rather than the sum
+  /// of them, which matters once a slow store (Keychain, encrypted storage) is
+  /// involved — the trade-off is that several `refresh` calls can then be in
+  /// flight at once. Error reporting is unchanged: the first failure, in
+  /// [accountIds] order, is thrown at the end.
   /// 依次恢复 [accountIds] 中的所有账号，然后激活 [activeId]（省略时激活第一个）。
   ///
   /// 某个账号恢复失败不会连累其余账号：所有账号都会被尝试，最后统一上报第一个错误。
+  ///
+  /// [parallel]（默认 `false`）改为并发恢复而非逐个恢复。启动耗时从「各存储耗时之和」
+  /// 变为「最慢的那个」，当存储较慢（Keychain、加密存储）时差别明显 —— 代价是可能同时
+  /// 有多个 `refresh` 在飞行中。错误上报不变：最后抛出 [accountIds] 顺序上的第一个失败。
   Future<void> restoreAll(
     Iterable<String> accountIds, {
     String? activeId,
     bool dropOthers = false,
+    bool parallel = false,
   }) async {
     _checkUsable();
 
@@ -284,13 +335,30 @@ final class AuthManagerGroup implements AuthTokenSource {
     }
 
     Object? firstError;
-    for (final id in accountIds) {
+    Future<Object?> restoreOne(String id) async {
       try {
         await forAccount(id).restore();
+        return null;
       } catch (e) {
         // Keep going: one unreadable store must not leave the others unrestored.
         // 继续处理：某个存储读不出来不应让其余账号无法恢复。
-        firstError ??= e;
+        return e;
+      }
+    }
+
+    if (parallel) {
+      // `Future.wait` preserves input order, so `firstError` is still the
+      // earliest failure in `accountIds`.
+      // `Future.wait` 保持输入顺序，因此 `firstError` 仍是 `accountIds` 中最靠前的失败。
+      for (final error in await Future.wait(accountIds.map(restoreOne))) {
+        firstError ??= error;
+      }
+    } else {
+      for (final id in accountIds) {
+        // Not `??=`: that would short-circuit and skip the remaining accounts.
+        // 不能用 `??=`：它会短路，导致其余账号被跳过。
+        final error = await restoreOne(id);
+        firstError ??= error;
       }
     }
     final target = activeId ?? (accountIds.isEmpty ? null : accountIds.first);

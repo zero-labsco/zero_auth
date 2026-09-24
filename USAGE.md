@@ -50,7 +50,7 @@ your storage  ──▶  TokenStore     ──▶               ──▶  acces
 
 ```yaml
 dependencies:
-  zero_auth: ^1.0.0
+  zero_auth: ^1.1.0
 ```
 
 ```dart
@@ -660,27 +660,42 @@ final class AuthManager implements AuthTokenSource {
     RefreshFailurePolicy? refreshFailurePolicy,
     DateTime Function()? clock,
     Duration? clockSkew,               // default 30s / 默认 30 秒
+    double clockSkewFraction = 0.25,   // caps clockSkew for short-lived tokens / 为短寿命令牌设置容差上限
     bool preserveSessionDetails = true,
     void Function(AuthState state)? onStateChanged,
+    void Function(Object error, StackTrace stack)? onObserverError,
   });
 }
 ```
+
+Constructor-only knobs — they shape behaviour but are **not** readable members
+(`AuthManager` keeps them private), so do not expect `auth.autoRefreshAhead`:
+
+仅存在于构造函数的调参项 —— 它们决定行为，但**不是**可读成员（`AuthManager` 将其私有化），
+因此不要去读 `auth.autoRefreshAhead`：
+
+| Constructor parameter / 构造参数 | Type | Notes |
+|---|---|---|
+| `autoRefreshAhead` | `Duration?` | Proactive renewal lead time; `null` disables it / 主动续期提前量，`null` 为关闭 |
+| `autoRefreshRetryDelay` | `Duration?` | Re-arms a proactive renewal that failed (default 30s), while a session still exists / 主动续期失败后重新排程（默认 30 秒） |
+| `autoRefreshMaxRetries` | `int?` | How many failed proactive renewals to retry (default 3) / 主动续期最多重试几次（默认 3） |
+| `autoRefreshMinInterval` | `Duration?` | Floor for an already-due proactive renewal (default 5s) / 「已到期」主动续期的最小等待（默认 5 秒） |
+
+Readable members / 可读成员：
 
 | Member | Signature | Notes |
 |---|---|---|
 | `strategy` | `final AuthStrategy` | Your backend boundary / 后端边界 |
 | `tokenStore` | `final TokenStore` | Defaults to `InMemoryTokenStore` |
+| `clockSkew` | `final Duration` | How much earlier a token counts as expired (default 30s) / 提前多久把令牌视为过期（默认 30 秒） |
+| `clockSkewFraction` | `final double` | Caps `clockSkew` at this fraction of the observed token lifetime (default `0.25`); `double.infinity` disables the cap / 把 `clockSkew` 钳制为观测到的令牌寿命的这个比例（默认 `0.25`）；`double.infinity` 关闭该上限 |
+| `preserveSessionDetails` | `final bool` | Carry identity fields across a renewal that returns tokens only (default `true`) / 只返回令牌的续期是否保留身份字段（默认 `true`） |
+| `onStateChanged` | `final void Function(AuthState)?` | Called for every emission; handy for logging or analytics without subscribing / 每次发出状态时调用，便于日志或埋点 |
+| `onObserverError` | `final void Function(Object, StackTrace)?` | Called when `onStateChanged` throws, so a broken sink is reported instead of failing silently. Never affects the state machine / 当 `onStateChanged` 抛异常时调用，使坏掉的日志/埋点被上报而不是静默失败；绝不影响状态机 |
+| `refreshFailurePolicy` | `final RefreshFailurePolicy` | Whether a failed refresh signs out / 刷新失败是否登出 |
+| `clock` | `final DateTime Function()` | Time source; defaults to the system clock / 时间源，默认系统时钟 |
 | `current` | `AuthState get current` | Current state, always available / 当前状态，始终可读 |
 | `state` | `Stream<AuthState> get state` | Broadcast, replays last value / 广播且重放最近值 |
-| `autoRefreshAhead` | `Duration?` | Proactive renewal lead time; `null` disables it / 主动续期提前量，`null` 为关闭 |
-| `autoRefreshRetryDelay` | `Duration` | Re-arms a proactive renewal that failed (default 30s), while a session still exists / 主动续期失败后重新排程（默认 30 秒） |
-| `autoRefreshMaxRetries` | `int` | How many failed proactive renewals to retry (default 3) / 主动续期最多重试几次（默认 3） |
-| `autoRefreshMinInterval` | `Duration` | Floor for an already-due proactive renewal (default 5s) / 「已到期」主动续期的最小等待（默认 5 秒） |
-| `clockSkew` | `Duration` | How much earlier a token counts as expired (default 30s) / 提前多久把令牌视为过期（默认 30 秒） |
-| `preserveSessionDetails` | `bool` | Carry identity fields across a renewal that returns tokens only (default `true`) / 只返回令牌的续期是否保留身份字段（默认 `true`） |
-| `onStateChanged` | `void Function(AuthState)?` | Called for every emission; handy for logging or analytics without subscribing / 每次发出状态时调用，便于日志或埋点 |
-| `refreshFailurePolicy` | `RefreshFailurePolicy` | Whether a failed refresh signs out / 刷新失败是否登出 |
-| `clock` | `DateTime Function()` | Time source; defaults to the system clock / 时间源，默认系统时钟 |
 | `currentSession` | `AuthSession? get currentSession` | `null` unless `Authenticated` / `Refreshing` |
 | `accessToken` | `String? get accessToken` | From `AuthTokenSource`; may already be expired — see `validAccessToken` / 可能已过期，见 `validAccessToken` |
 | `restore()` | `Future<void> restore({bool refreshIfExpired = true})` | Loads from `TokenStore`; an expired session is refreshed first, dropped when the failure is terminal and **kept** when it is transient. Concurrent calls share one attempt / 载入持久化会话；过期会话先续期，终局失败丢弃、**瞬时**失败保留。并发调用共享同一次尝试 |
@@ -703,7 +718,7 @@ final class AuthManager implements AuthTokenSource {
 | `Authenticated` | `AuthSession session` | Session active |
 | `Refreshing` | `AuthSession session` | Renewal in flight; the previous session stays usable |
 | `LoggingOut` | `AuthSession session` | Logout in flight; that session is being discarded |
-| `AuthError` | `AppException error` | Terminal failure |
+| `AuthError` | `AppException error` | A failure was reported. Whether the session survives depends on `refreshFailurePolicy`: a terminal one clears it, a transient one keeps it / 已上报一次失败。会话是否保留由 `refreshFailurePolicy` 决定：终局失败清空、瞬时失败保留 |
 
 `bool get isAuthenticated` — `true` for `Authenticated` **and** `Refreshing`, so a
 token renewal never unmounts signed-in UI. `bool get isBusy` covers
@@ -839,12 +854,27 @@ single-session. See the
 | `forAccount(id)` / `addAccount(id)` | Lazily creates and caches that account's manager / 惰性创建并缓存 |
 | `switchTo(id)` | Makes an account active; the group's `state` follows it and `activeIdChanges` emits / 激活账号，状态流随之切换且 `activeIdChanges` 发出新值 |
 | `activeIdChanges` | `Stream<String?>` of the active account id (`null` when none) / 激活账号 id 流（无则为 `null`） |
+| `accountIds` | `Iterable<String>` of the ids the group currently owns / 分组当前持有的账号 id |
+| `activeId` | `String?` — the active account id, `null` when none / 激活账号 id，无则为 `null` |
+| `active` | `AuthManager?` — the active account's manager, `null` when none / 激活账号的管理器，无则为 `null` |
 | `current` / `state` / `currentSession` / `accessToken` | Mirror the active account / 反映激活账号 |
-| `validAccessToken()` | The active account's renewed token / 激活账号续期后的令牌 |
-| `restoreAll(ids, {activeId})` | Restores every account — one failing account does not abandon the rest — then activates one / 恢复所有账号（某账号失败不连累其余）并激活其一 |
+| `validAccessToken({leeway})` | The active account's renewed token, or `null` / 激活账号续期后的令牌，无则为 `null` |
+| `restoreAll(ids, {activeId, dropOthers = false, parallel = false})` | Restores every account — one failing account does not abandon the rest — then activates one. `dropOthers` disposes managers for ids no longer known; `parallel` restores them concurrently / 恢复所有账号（某账号失败不连累其余）并激活其一；`dropOthers` 会释放不再已知 id 的管理器，`parallel` 则并发恢复 |
+| `onObserverError` | Called as `(accountId, error, stack)` when the group's `onStateChanged` throws; forwarded to every manager it creates / 当分组的 `onStateChanged` 抛异常时以 `(accountId, error, stack)` 调用；会转发给它创建的每个管理器 |
 | `remove(id)` | Signs out and forgets an account / 登出并移除 |
 | `logoutAll()` | Signs every account out / 一次性登出所有账号 |
 | `disposeAll()` | Releases every manager / 释放所有管理器 |
+
+After `disposeAll()` every read on the group — `accountIds`, `activeId`,
+`active`, `current`, `currentSession`, `accessToken`, `state` and
+`validAccessToken()` — throws `AuthException(code: 'group_disposed')`, mirroring
+the single-manager `manager_disposed` contract. `disposeAll()` itself is
+idempotent.
+
+`disposeAll()` 之后，分组上的每一次读取 —— `accountIds`、`activeId`、`active`、
+`current`、`currentSession`、`accessToken`、`state` 与 `validAccessToken()` ——
+都会抛出 `AuthException(code: 'group_disposed')`，与单管理器的 `manager_disposed`
+约定一致；`disposeAll()` 本身可重复调用。
 
 ---
 

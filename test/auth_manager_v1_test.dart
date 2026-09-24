@@ -25,6 +25,27 @@ final class _MemStore implements TokenStore {
   Future<void> clear() async => value = null;
 }
 
+/// A store whose *first* write fails and whose second one succeeds — the
+/// transient case `_persist` retries.
+/// 第一次写入失败、第二次成功 —— 正是 `_persist` 会重试的瞬时情况。
+final class _FlakyStore implements TokenStore {
+  AuthSession? value;
+  int saveCalls = 0;
+
+  @override
+  Future<void> save(AuthSession session) async {
+    saveCalls++;
+    if (saveCalls == 1) throw StateError('transient write failure');
+    value = session;
+  }
+
+  @override
+  Future<AuthSession?> load() async => value;
+
+  @override
+  Future<void> clear() async => value = null;
+}
+
 /// A store whose reads always fail.
 final class _BrokenStore implements TokenStore {
   @override
@@ -365,10 +386,35 @@ void main() {
 
       await manager.login(_credentials);
 
+      // A dedicated code, so "could not persist" is told apart from "rejected".
       await expectLater(
         manager.updateSession((s) => s.copyWith(displayName: 'Renamed')),
-        throwsA(isA<UnexpectedAuthException>()),
+        throwsA(
+          isA<AuthException>().having(
+            (e) => e.code,
+            'code',
+            'session_persist_failed',
+          ),
+        ),
       );
+    });
+
+    test('a transient save failure is retried once', () async {
+      final store = _FlakyStore();
+      final manager = AuthManager(
+        strategy: _FixedStrategy(
+          session: _session('a'),
+          refreshed: _session('b'),
+        ),
+        tokenStore: store,
+        clock: () => now,
+      );
+
+      await manager.login(_credentials);
+
+      expect(manager.current, isA<Authenticated>());
+      expect(store.saveCalls, 2); // first failed, retry succeeded
+      await manager.dispose();
     });
   });
 
@@ -512,12 +558,77 @@ void main() {
         tokenStore: _MemStore(),
         clock: () => now,
         clockSkew: const Duration(seconds: 30),
+        // The cap would shrink the 30s skew to 2.5s for a 10s token; keep the
+        // full skew so this test keeps asserting the "dies in flight" rule.
+        clockSkewFraction: double.infinity,
       );
 
       await manager.login(_credentials);
 
       // 10s left is less than the 30s skew, so the token is renewed first.
       expect(await manager.validAccessToken(), 'b');
+    });
+
+    test('caps the skew for a short-lived token', () async {
+      var t = now;
+      final strategy = _FixedStrategy(
+        session: _session(
+          'a',
+          expiresAt: now.add(const Duration(seconds: 10)),
+        ),
+        refreshed: _session(
+          'b',
+          expiresAt: now.add(const Duration(seconds: 10)),
+        ),
+      );
+      final manager = AuthManager(
+        strategy: strategy,
+        tokenStore: _MemStore(),
+        clock: () => t,
+        clockSkew: const Duration(seconds: 30),
+      );
+
+      await manager.login(_credentials);
+
+      // Observed lifetime is 10s, so the skew is capped at 2.5s: with 10s left
+      // the token is comfortably alive and no renewal is triggered.
+      expect(strategy.refreshCount, 0);
+      expect(await manager.validAccessToken(), 'a');
+
+      // With 2s left it falls inside the cap, so it renews.
+      t = now.add(const Duration(seconds: 8));
+      expect(await manager.validAccessToken(), 'b');
+      expect(strategy.refreshCount, 1);
+
+      await manager.dispose();
+    });
+
+    test('a long-lived token keeps the full skew', () async {
+      var t = now;
+      final strategy = _FixedStrategy(
+        session: _session(
+          'a',
+          expiresAt: now.add(const Duration(minutes: 10)),
+        ),
+        refreshed: _session('b'),
+      );
+      final manager = AuthManager(
+        strategy: strategy,
+        tokenStore: _MemStore(),
+        clock: () => t,
+        clockSkew: const Duration(seconds: 30),
+      );
+
+      await manager.login(_credentials);
+
+      // A quarter of 10 minutes dwarfs the 30s skew, so nothing is capped: with
+      // 20s left — well inside the skew — the token is still renewed.
+      t = now
+          .add(const Duration(minutes: 10))
+          .subtract(const Duration(seconds: 20));
+      expect(await manager.validAccessToken(), 'b');
+
+      await manager.dispose();
     });
 
     test('validAccessToken(leeway:) overrides the manager default', () async {
@@ -725,6 +836,47 @@ void main() {
       expect(manager.current, isA<Authenticated>());
       expect(seen, isNotEmpty);
       expect(await manager.validAccessToken(), 'a');
+    });
+
+    test('onObserverError reports a throwing observer', () async {
+      final reported = <Object>[];
+      final manager = AuthManager(
+        strategy: _FixedStrategy(
+          session: _session('a'),
+          refreshed: _session('b'),
+        ),
+        tokenStore: _MemStore(),
+        clock: () => now,
+        onStateChanged: (_) => throw StateError('observer blew up'),
+        onObserverError: (error, _) => reported.add(error),
+      );
+
+      await manager.login(_credentials);
+
+      // The machine is untouched, but the failure is no longer invisible.
+      // 状态机不受影响，但这次失败不再无声无息。
+      expect(manager.current, isA<Authenticated>());
+      expect(reported, isNotEmpty);
+      // Every emission that reached the observer reported its failure.
+      expect(reported.every((e) => e is StateError), isTrue);
+    });
+
+    test('a throwing onObserverError is swallowed too', () async {
+      final manager = AuthManager(
+        strategy: _FixedStrategy(
+          session: _session('a'),
+          refreshed: _session('b'),
+        ),
+        tokenStore: _MemStore(),
+        clock: () => now,
+        onStateChanged: (_) => throw StateError('observer blew up'),
+        onObserverError: (_, __) => throw StateError('reporter blew up'),
+      );
+
+      // Reporting must never break authentication, either.
+      // 上报本身同样绝不能破坏认证流程。
+      await expectLater(manager.login(_credentials), completes);
+      expect(manager.current, isA<Authenticated>());
     });
   });
 
