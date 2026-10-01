@@ -74,13 +74,24 @@ void main() {
       () async {
     final file = File('${dir.path}/session.json')
       ..writeAsStringSync('{"accessToken": 42}');
-    // A partial write or a hand-edited file must not crash a cold start.
+    // A hand-edited file must not crash a cold start.
+    expect(await JsonTokenStore(file).load(), isNull);
+  });
+
+  test('a truncated file reads as "not signed in" instead of throwing',
+      () async {
+    // `jsonDecode` throws a FormatException on truncated input, so the guard has
+    // to wrap the decode — not just the shape check that follows it.
+    // `jsonDecode` 对截断输入会抛 FormatException，因此防护必须包住解码本身，
+    // 而不只是之后的形状校验。
+    final file = File('${dir.path}/session.json')
+      ..writeAsStringSync('{"accessToken": "abc", "user');
     expect(await JsonTokenStore(file).load(), isNull);
   });
 
   test('a session without a refresh token survives', () async {
     final s = store();
-    await s.save(const AuthSession(accessToken: 'access'));
+    await s.save(AuthSession(accessToken: 'access'));
 
     final loaded = await s.load();
     expect(loaded?.refreshToken, isNull);

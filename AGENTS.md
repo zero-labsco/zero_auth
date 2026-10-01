@@ -15,7 +15,7 @@ This file defines the architecture, coding conventions, and required workflows f
 - `lib/zero_auth.dart` — the **only** public barrel. Every public symbol must be re-exported here; consumers must never import `lib/src/` directly.
 - `lib/src/`:
   - `auth_manager.dart` — `AuthManager`: the orchestrator. Owns the state machine, `restore()` / `login()` / `register()` / `logout()` / `refresh()` / `dispose()`, plus `current`, `state` (replay-last broadcast stream), `currentSession` and `accessToken` (it *is* an `AuthTokenSource`). Pass `autoRefreshAhead` to enable opt-in proactive refresh that renews tokens before expiry.
-  - `auth_state.dart` — sealed `AuthState`: `Unauthenticated` / `Authenticating` / `Authenticated` / `AuthError` (+ `AuthFail` payload).
+  - `auth_state.dart` — sealed `AuthState`: `Unauthenticated` / `Authenticating` / `Restoring` / `Authenticated` / `Refreshing` / `LoggingOut` / `AuthError` (+ `AuthFail` payload). Seven subtypes: adding an eighth is a breaking change, so it waits for a major.
   - `auth_session.dart` — `AuthSession` (access/refresh token, expiry, user id, display name, raw claims) and `SessionHandle`.
   - `auth_strategy.dart` — `AuthStrategy` (the backend boundary), `Credentials`, `RegistrationInput`, `RefreshToken`.
   - `auth_manager_group.dart` — `AuthManagerGroup`: optional multi-account coordination. Owns one `AuthManager` per account (`forAccount` / `addAccount` / `switchTo` / `restoreAll` / `remove` / `logoutAll` / `disposeAll`); implements `AuthTokenSource` for the active account. `AuthManager` itself stays single-session on purpose.

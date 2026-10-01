@@ -7,7 +7,7 @@ void main() {
       final store = InMemoryTokenStore();
       expect(await store.load(), isNull);
 
-      const session = AuthSession(accessToken: 'a', userId: 'u');
+      final session = AuthSession(accessToken: 'a', userId: 'u');
       await store.save(session);
       expect(await store.load(), session);
 

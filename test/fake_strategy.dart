@@ -19,7 +19,7 @@ final class FakeAuthStrategy implements AuthStrategy {
   FakeAuthStrategy({AuthSession? session})
       : nextSession = session ?? _default();
 
-  static AuthSession _default() => const AuthSession(
+  static AuthSession _default() => AuthSession(
         accessToken: 'access',
         refreshToken: RefreshToken('refresh'),
         userId: 'u1',

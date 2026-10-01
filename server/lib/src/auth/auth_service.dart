@@ -108,20 +108,35 @@ final class AuthService {
 
   /// Creates an account and returns its first token pair.
   ///
-  /// Fails with `username_taken` when the name is already registered, which the
-  /// client maps onto `InvalidCredentialsException`-style handling.
+  /// Rejects empty credentials with `bad_request` (400) and a taken name with
+  /// `username_taken` (409), so the client can tell "you sent nothing" apart
+  /// from "someone else already has that name".
+  /// 创建账号并返回其首个令牌对。
+  ///
+  /// 空凭据以 `bad_request`（400）拒绝、重名以 `username_taken`（409）拒绝，以便客户端
+  /// 区分「你什么都没填」与「这个名字已被占用」。
   AuthResult register(
     String username,
     String password, {
     String? displayName,
   }) {
+    if (username.trim().isEmpty || password.isEmpty) {
+      logger.warn('registration rejected: empty username or password');
+      return const AuthErr(
+        AuthFailure(
+          code: 'bad_request',
+          message: 'Username and password must not be empty',
+        ),
+      );
+    }
+
     final user = users.register(username, password, displayName: displayName);
     if (user == null) {
       logger.warn('registration rejected for username="$username"');
       return const AuthErr(
         AuthFailure(
           code: 'username_taken',
-          message: 'Username is already taken, or the credentials are empty',
+          message: 'Username is already taken',
         ),
       );
     }

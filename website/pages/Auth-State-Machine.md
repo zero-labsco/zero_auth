@@ -2,18 +2,28 @@
 
 ## States / 状态
 
-`AuthState` is a sealed class with six subtypes:
+`AuthState` is a sealed class with seven subtypes:
 
-`AuthState` 是一个密封类，包含六个子类型：
+`AuthState` 是一个密封类，包含七个子类型：
 
 | State | Fields | Meaning |
 |-------|-------|---------|
 | `Unauthenticated` | — | No session / 无会话 |
 | `Authenticating` | — | `login`/`register` in flight / 登录/注册进行中 |
+| `Restoring` | — | `restore()` in flight; no session yet / 恢复进行中，此刻还没有会话 |
 | `Authenticated` | `session: AuthSession` | A valid session / 有效会话 |
 | `Refreshing` | `session: AuthSession` | Renewal in flight; the previous session is still usable / 续期进行中，旧会话仍可用 |
 | `LoggingOut` | `session: AuthSession` | `logout()` in flight; that session is being discarded / 登出进行中，该会话即将被丢弃 |
 | `AuthError` | `error: AppException` | Last operation failed / 上一次操作失败 |
+
+`LoggingOut` carries a session only so the backend can be told what to revoke —
+it is **not** a usable session: `refresh()` refuses to start while the state is
+`LoggingOut`, and `validAccessToken()` returns `null`. That is what keeps a
+renewal from landing after the sign-out and resurrecting the session.
+
+`LoggingOut` 携带会话只是为了让后端知道要吊销什么 —— 它**不是**可用会话：状态为
+`LoggingOut` 时 `refresh()` 会拒绝启动，`validAccessToken()` 返回 `null`。这正是
+「续期在登出之后落地并让会话复活」不会发生的原因。
 
 Two helpers save you from spelling out every case:
 

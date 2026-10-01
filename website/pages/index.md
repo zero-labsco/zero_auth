@@ -9,7 +9,7 @@ A backend-agnostic auth state machine & session lifecycle core for Dart/Flutter.
 | Feature | Description |
 |---------|-------------|
 | **Backend-agnostic** | Implement only `login`/`register`/`logout`/`refresh`; REST, gRPC, Firebase or a private RPC are equally valid targets / 只需实现四个方法，REST、gRPC、Firebase 或私有 RPC 均可接入 |
-| **Auth State Machine** | Sealed `Unauthenticated` / `Authenticating` / `Authenticated` / `Refreshing` / `LoggingOut` / `AuthError` on a `Stream<AuthState>` that replays the latest value to new listeners; use `isAuthenticated` / `isBusy` / 密封六态状态机 + 重放最近值的状态流，可用 `isAuthenticated` / `isBusy` |
+| **Auth State Machine** | Sealed `Unauthenticated` / `Authenticating` / `Restoring` / `Authenticated` / `Refreshing` / `LoggingOut` / `AuthError` on a `Stream<AuthState>` that replays the latest value to new listeners; use `isAuthenticated` / `isBusy` / 密封七态状态机 + 重放最近值的状态流，可用 `isAuthenticated` / `isBusy` |
 | **Silent Restore** | `restore()` rehydrates the persisted session at startup / 启动时静默恢复持久化会话 |
 | **Single-flight Refresh** | Concurrent `refresh()` calls share one in-flight request instead of stampeding the backend / 并发刷新共享同一次请求，避免冲击后端 |
 | **Pluggable Persistence** | The only persistence surface is `TokenStore.save/load/clear`; `InMemoryTokenStore` ships in-core / 唯一的持久化接口，内核自带内存实现 |

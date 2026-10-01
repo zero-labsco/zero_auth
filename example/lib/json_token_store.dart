@@ -24,9 +24,19 @@ final class JsonTokenStore implements TokenStore {
     if (!await file.exists()) return null;
     final content = await file.readAsString();
     if (content.isEmpty) return null;
-    // tryFromJson, not fromJson: a partial write or a hand-edited file must read
-    // as "not signed in", not throw a FormatException at startup.
-    return AuthSession.tryFromJson(jsonDecode(content));
+
+    // Decode before validating: `jsonDecode` throws on a truncated file, so a
+    // partial write has to be caught here — `tryFromJson` only guards the shape
+    // of an already-decoded value.
+    // 先解码再校验：`jsonDecode` 对截断文件会抛异常，因此写入中断必须在这里拦住 ——
+    // `tryFromJson` 只负责校验已解码值的形状。
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(content);
+    } on FormatException {
+      return null;
+    }
+    return AuthSession.tryFromJson(decoded);
   }
 
   @override

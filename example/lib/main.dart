@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:zero_auth/zero_auth.dart';
 
@@ -126,7 +127,18 @@ class _HttpAuthStrategy implements AuthStrategy {
   @override
   Future<void> logout(SessionHandle handle) async {
     try {
-      await _dio.post('$baseUrl/logout');
+      // Send the refresh token so the backend can actually revoke the family;
+      // without it the server has nothing to invalidate and the token stays
+      // valid for its full lifetime.
+      // 带上刷新令牌，后端才能真正吊销整个 family；否则服务端无从失效，令牌会在其
+      // 整个寿命内保持可用。
+      await _dio.post(
+        '$baseUrl/logout',
+        data: {
+          if (handle.refreshToken != null)
+            'refreshToken': handle.refreshToken!.value,
+        },
+      );
     } catch (e) {
       throw _mapError(e);
     }
@@ -187,13 +199,19 @@ class DemoApp extends StatefulWidget {
 }
 
 class _DemoAppState extends State<DemoApp> {
-  static const _baseUrl = 'http://localhost:8080';
+  /// An Android emulator cannot reach the host's `localhost`; from there the
+  /// host machine is `10.0.2.2`.
+  /// Android 模拟器无法访问宿主机的 `localhost`；在那里宿主机地址是 `10.0.2.2`。
+  static final String _baseUrl = defaultTargetPlatform == TargetPlatform.android
+      ? 'http://10.0.2.2:8080'
+      : 'http://localhost:8080';
 
   /// Defaults to the real Dart backend in `../../server`; flip the switch to
   /// fall back to the offline double.
   bool _useBackend = true;
   late AuthManager _auth;
   late Dio _dio;
+  late Stream<AuthState> _authState;
 
   final _username = TextEditingController(text: 'user');
   final _password = TextEditingController();
@@ -207,6 +225,9 @@ class _DemoAppState extends State<DemoApp> {
   @override
   void dispose() {
     unawaited(_auth.dispose());
+    // Without this, in-flight requests keep running against a disposed manager.
+    // 否则在飞的请求会继续打在已释放的管理器上。
+    _dio.close(force: true);
     _username.dispose();
     _password.dispose();
     super.dispose();
@@ -220,6 +241,11 @@ class _DemoAppState extends State<DemoApp> {
     // The interceptor references this same [_auth], so it always reads the live
     // token and renews it before it expires.
     _dio = Dio()..interceptors.add(RefreshingAuthInterceptor(_auth));
+    // Cached: `AuthManager.state` builds a new controller per read, so reading
+    // it inside `build()` would resubscribe on every rebuild.
+    // 缓存：`AuthManager.state` 每次读取都会新建 controller，放在 `build()` 里读会导致
+    // 每次重建都重新订阅。
+    _authState = _auth.state;
     unawaited(_auth.restore());
   }
 
@@ -309,7 +335,7 @@ class _DemoAppState extends State<DemoApp> {
           body: SafeArea(
             child: StreamBuilder<AuthState>(
               initialData: _auth.current,
-              stream: _auth.state,
+              stream: _authState,
               builder: (context, snapshot) => _DemoBody(
                 state: snapshot.data,
                 auth: _auth,

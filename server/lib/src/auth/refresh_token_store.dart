@@ -26,8 +26,15 @@ final class RefreshTokenStore {
 
   final Map<String, _Entry> _active = {};
 
-  /// Already-consumed token ids, mapped to their family.
-  final Map<String, String> _consumed = {};
+  /// Already-consumed token ids, mapped to their family and to the instant the
+  /// replay window for that id closes.
+  ///
+  /// Bounded on purpose: a rotation happens on every refresh, so an unbounded
+  /// map here would grow for as long as the process lives.
+  /// 已使用的令牌 id，映射到其 family 以及该 id 的重放窗口关闭时刻。
+  ///
+  /// 刻意设有上限：每次续期都会发生轮换，若这里的映射无界，就会随进程存活时间一直增长。
+  final Map<String, _Consumed> _consumed = {};
 
   /// Issues a refresh token for [user], optionally continuing a family.
   String issue(UserRecord user, {String? family}) {
@@ -62,9 +69,9 @@ final class RefreshTokenStore {
     if (jti == null || family == null) return null;
 
     // Replay: this token was already exchanged. Revoke its whole family.
-    final replayedFamily = _consumed[jti];
-    if (replayedFamily != null) {
-      revokeFamily(replayedFamily);
+    final replayed = _consumed[jti];
+    if (replayed != null) {
+      revokeFamily(replayed.family);
       return null;
     }
 
@@ -72,7 +79,10 @@ final class RefreshTokenStore {
     if (entry == null) return null;
     if (entry.expiresAt.isBefore(DateTime.now())) return null;
 
-    _consumed[jti] = entry.family;
+    _consumed[jti] = _Consumed(
+      family: entry.family,
+      expiresAt: DateTime.now().add(ttl),
+    );
     final user = UserRecord(id: entry.userId, displayName: entry.displayName);
     return Rotation(
       user: user,
@@ -90,20 +100,58 @@ final class RefreshTokenStore {
   }
 
   /// Revokes every token sharing [family].
+  ///
+  /// The revoked ids are also recorded as consumed, so presenting one later is
+  /// detected as a replay rather than shrugged off as an unknown token. That
+  /// keeps revocation and replay detection symmetric.
+  /// 吊销共享同一 [family] 的所有令牌。
+  ///
+  /// 被吊销的 id 也会记录为「已使用」，因此之后再出示会被判定为重放，而不是被当作
+  /// 未知令牌放过。这让吊销与重放检测保持对称。
   void revokeFamily(String family) {
-    _active.removeWhere((_, entry) => entry.family == family);
+    final expiresAt = DateTime.now().add(ttl);
+    final revoked = <String>[];
+    _active.removeWhere((jti, entry) {
+      if (entry.family != family) return false;
+      revoked.add(jti);
+      return true;
+    });
+    for (final jti in revoked) {
+      _consumed[jti] = _Consumed(family: family, expiresAt: expiresAt);
+    }
   }
 
   /// Drops expired bookkeeping. Returns how many entries were removed.
+  ///
+  /// Both maps are swept: `_consumed` grows on every rotation, so purging only
+  /// `_active` would leak one entry per refresh for the life of the process.
+  /// 清理过期的簿记，返回被移除的条目数。
+  ///
+  /// 两张表都会清扫：`_consumed` 每次轮换都会增长，只清 `_active` 会让每次续期都泄漏
+  /// 一条记录，直到进程结束。
   int purgeExpired() {
     final now = DateTime.now();
-    final before = _active.length;
+    final activeBefore = _active.length;
     _active.removeWhere((_, entry) => entry.expiresAt.isBefore(now));
-    return before - _active.length;
+
+    final consumedBefore = _consumed.length;
+    _consumed.removeWhere((_, consumed) => consumed.expiresAt.isBefore(now));
+
+    return (activeBefore - _active.length) +
+        (consumedBefore - _consumed.length);
   }
 
   /// Active token count, surfaced by `/health`.
   int get activeCount => _active.length;
+}
+
+/// A consumed token id, kept only until its replay window closes.
+/// 已使用的令牌 id，只保留到其重放窗口关闭为止。
+final class _Consumed {
+  _Consumed({required this.family, required this.expiresAt});
+
+  final String family;
+  final DateTime expiresAt;
 }
 
 final class _Entry {

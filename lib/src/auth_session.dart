@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 /// A refresh-token value object.
 /// 刷新令牌值对象。
 final class RefreshToken {
@@ -51,16 +53,51 @@ final class AuthSession {
   final DateTime? expiresAt;
   final String? userId;
   final String? displayName;
+
+  /// Raw claims, frozen at construction time.
+  ///
+  /// The map handed to the constructor is **copied and made unmodifiable**, so a
+  /// session is a real value object: mutating the caller's map afterwards can no
+  /// longer change the session — or invalidate its hash — behind its back.
+  /// Comparing it still works by content, exactly like an ordinary map literal.
+  ///
+  /// Nested maps and lists are frozen too; values that are neither (a custom
+  /// object) are kept by reference, which is why claims are documented as
+  /// JSON-safe values only.
+  /// 构造时即被冻结的原始 claims。
+  ///
+  /// 传给构造函数的映射会被**拷贝并设为不可修改**，因此会话是一个真正的值对象：调用方
+  /// 之后修改自己的映射，再也不会在会话背后改变它 —— 也不会让它已缓存的哈希失效。
+  /// 比较方式仍按内容比较，与普通映射字面量完全一致。
+  ///
+  /// 嵌套的 Map 与 List 同样会被冻结；两者都不是的值（自定义对象）则保持引用，这也是
+  /// 文档要求 claims 只含 JSON 安全值的原因。
   final Map<String, Object?>? claims;
 
-  const AuthSession({
+  /// Claims can no longer change, so the hash is computed once and reused.
+  /// claims 不再可变，因此哈希只计算一次并复用。
+  final int _cachedHashCode;
+
+  /// Not `const`: freezing and hashing [claims] are runtime steps. A `const`
+  /// session was never deeply immutable anyway — only its fields were.
+  /// 不再是 `const`：冻结与哈希 [claims] 都是运行时步骤。而且 `const` 会话过去也从未
+  /// 做到深度不可变 —— 不可变的只是它的字段引用。
+  AuthSession({
     required this.accessToken,
     this.refreshToken,
     this.expiresAt,
     this.userId,
     this.displayName,
-    this.claims,
-  });
+    Map<String, Object?>? claims,
+  })  : claims = claims == null ? null : _freezeClaims(claims),
+        _cachedHashCode = Object.hash(
+          accessToken,
+          refreshToken,
+          expiresAt,
+          userId,
+          displayName,
+          _claimsHash(claims),
+        );
 
   /// Whether the access token is expired. Sessions without an [expiresAt] are
   /// treated as still valid (no expiry known).
@@ -192,7 +229,17 @@ final class AuthSession {
     if (displayName != null && displayName is! String) return null;
 
     final claims = json['claims'];
-    if (claims != null && claims is! Map) return null;
+    if (claims != null) {
+      if (claims is! Map) return null;
+      // `cast` is a lazy view: a non-String key would only surface later, as a
+      // `TypeError`, the first time the caller reads a claim. Check the keys
+      // eagerly so "parsed successfully" really means "safe to read".
+      // `cast` 是惰性视图：非 String 的键只会在调用方首次读取 claim 时才以
+      // `TypeError` 暴露。这里提前校验键，让「解析成功」真正等于「可以安全读取」。
+      for (final key in claims.keys) {
+        if (key is! String) return null;
+      }
+    }
 
     return AuthSession(
       accessToken: accessToken,
@@ -216,14 +263,7 @@ final class AuthSession {
       _claimsEqual(other.claims, claims);
 
   @override
-  int get hashCode => Object.hash(
-        accessToken,
-        refreshToken,
-        expiresAt,
-        userId,
-        displayName,
-        _claimsHash(claims),
-      );
+  int get hashCode => _cachedHashCode;
 
   /// Claims participate in equality so a session whose *only* change is in
   /// `claims` still counts as new — otherwise a state emission could be
@@ -264,6 +304,28 @@ final class AuthSession {
     return a == b;
   }
 
+  /// Copies [claims] and wraps it in an unmodifiable map that still compares by
+  /// content.
+  static Map<String, Object?> _freezeClaims(Map<String, Object?> claims) =>
+      _FrozenClaims(<String, Object?>{
+        for (final entry in claims.entries) entry.key: _freeze(entry.value),
+      });
+
+  static Object? _freeze(Object? value) {
+    if (value is Map) {
+      return Map<Object?, Object?>.unmodifiable({
+        for (final entry in value.entries) entry.key: _freeze(entry.value),
+      });
+    }
+    if (value is List) {
+      return List<Object?>.unmodifiable([
+        for (final item in value) _freeze(item),
+      ]);
+    }
+    // Scalars — and any custom object — are kept by reference.
+    return value;
+  }
+
   static int _claimsHash(Map<String, Object?>? claims) {
     if (claims == null) return 0;
     var hash = 0;
@@ -294,4 +356,52 @@ final class AuthSession {
     }
     return value.hashCode;
   }
+}
+
+/// An unmodifiable map whose `==` and `hashCode` work **by content**, so
+/// freezing `AuthSession.claims` does not change how callers compare it against
+/// an ordinary map literal.
+///
+/// `Map.unmodifiable` alone would have been simpler but compares by identity,
+/// which would silently turn every `session.claims == {...}` into `false`.
+/// 不可修改的映射，其 `==` 与 `hashCode` **按内容**工作，因此冻结
+/// `AuthSession.claims` 不会改变调用方把它与普通映射字面量比较的结果。
+///
+/// 单独使用 `Map.unmodifiable` 更简单，但它按身份比较，会让所有
+/// `session.claims == {...}` 静默变成 `false`。
+final class _FrozenClaims extends MapBase<String, Object?> {
+  _FrozenClaims(this._base);
+
+  final Map<String, Object?> _base;
+
+  static Never _immutable() =>
+      throw UnsupportedError('AuthSession.claims is immutable');
+
+  @override
+  Object? operator [](Object? key) => _base[key];
+
+  @override
+  void operator []=(String key, Object? value) => _immutable();
+
+  @override
+  void clear() => _immutable();
+
+  @override
+  Object? remove(Object? key) => _immutable();
+
+  @override
+  Iterable<String> get keys => _base.keys;
+
+  @override
+  int get length => _base.length;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! Map) return false;
+    return AuthSession._deepEqual(_base, other);
+  }
+
+  @override
+  int get hashCode => AuthSession._claimsHash(_base);
 }

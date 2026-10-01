@@ -18,11 +18,15 @@ sealed class AuthState {
   /// 途中退回登录页。请优先使用此属性，而不是 `state is Authenticated`。
   bool get isAuthenticated => this is Authenticated || this is Refreshing;
 
-  /// Whether an operation is still in flight (login / register / refresh /
-  /// logout). Handy for disabling buttons and showing spinners.
-  /// 是否仍有操作在进行中（登录 / 注册 / 刷新 / 登出），可用于禁用按钮或显示加载态。
+  /// Whether an operation is still in flight (login / register / restore /
+  /// refresh / logout). Handy for disabling buttons and showing spinners.
+  /// 是否仍有操作在进行中（登录 / 注册 / 恢复 / 刷新 / 登出），可用于禁用按钮或显示
+  /// 加载态。
   bool get isBusy =>
-      this is Authenticating || this is Refreshing || this is LoggingOut;
+      this is Authenticating ||
+      this is Restoring ||
+      this is Refreshing ||
+      this is LoggingOut;
 
   /// The session this state carries, or `null` when it carries none.
   ///
@@ -62,6 +66,26 @@ final class Authenticating extends AuthState {
 
   @override
   int get hashCode => 1;
+}
+
+/// A restore is in flight: the persisted session is being read, and possibly
+/// renewed. No session is available yet, which is why this is neither
+/// [isAuthenticated] nor carrying one — but it *is* [isBusy].
+///
+/// Exists so a cold start can show "restoring…" instead of flashing the
+/// signed-out screen for a frame before the session arrives.
+/// 恢复进行中：正在读取持久化会话，并可能在续期。此刻还没有会话可用，因此它既不是
+/// [isAuthenticated] 也不携带会话 —— 但它属于 [isBusy]。
+///
+/// 它的存在让冷启动可以显示「恢复中…」，而不是在会话到达前闪一帧未登录界面。
+final class Restoring extends AuthState {
+  const Restoring();
+
+  @override
+  bool operator ==(Object other) => other is Restoring;
+
+  @override
+  int get hashCode => 6;
 }
 
 /// A session is active.

@@ -1,5 +1,81 @@
 # Changelog
 
+## 2.0.0
+
+**Breaking release / 破坏性版本.** Two changes need attention when upgrading from
+`1.x`; everything else in this release is additive or a fix.
+**破坏性版本。** 从 `1.x` 升级时有两处需要留意；本版本其余内容均为新增或修复。
+
+### BREAKING / 破坏性变更
+
+- **`AuthSession` is no longer `const`-constructible, and `claims` is now
+  immutable.** The map you hand in is copied and frozen (nested maps and lists
+  included), so mutating it afterwards can no longer change the session — or
+  invalidate its hash — from the outside. Comparing `session.claims` against a
+  plain map literal still works by content.
+  Migration: drop `const` from `AuthSession(...)` call sites, and build a new
+  session instead of mutating `claims`.
+  - **`AuthSession` 不再能用 `const` 构造，且 `claims` 现在不可变。** 传入的映射会被拷贝
+    并冻结（含嵌套的 Map 与 List），因此之后修改它再也无法在会话背后改变会话 —— 也不会
+    让它已缓存的哈希失效。`session.claims` 与普通映射字面量的比较仍按内容进行。
+    迁移：去掉 `AuthSession(...)` 前的 `const`，并改为构造新会话而非修改 `claims`。
+- **A new `AuthState` subtype: `Restoring`.** Exhaustive `switch` statements over
+  `AuthState` must add a case for it. The sealed hierarchy now has seven
+  subtypes. Prefer `state.isAuthenticated` / `state.isBusy`, which are already
+  correct for it.
+  - **新增 `AuthState` 子类 `Restoring`。** 对 `AuthState` 的穷举 `switch` 必须补上这个
+    分支；密封层级现在有七个子类型。建议改用 `state.isAuthenticated` / `state.isBusy`，
+    它们对 `Restoring` 已经是正确的。
+
+### Added / 新增
+
+- **`Restoring`** — emitted at the start of `restore()`, so a cold start can
+  render "restoring…" instead of flashing the signed-out screen before the
+  session arrives. It is `isBusy`, carries no session, and concurrent `restore()`
+  calls share one attempt (so it is emitted once).
+  - **`Restoring`** —— 在 `restore()` 开始时发出，让冷启动能渲染「恢复中…」，而不是在会话
+    到达前闪一下未登录界面。它属于 `isBusy`、不携带会话；并发的 `restore()` 共享同一次
+    尝试（因此只发出一次）。
+
+### Performance / 性能
+
+- **`AuthSession.hashCode` is computed once.** Now that `claims` cannot change,
+  the hash is cached at construction instead of walking the whole nested
+  structure on every read.
+  - **`AuthSession.hashCode` 只计算一次。** 既然 `claims` 不再可变，哈希会在构造时缓存，
+    而不必每次读取都遍历整个嵌套结构。
+
+### Fixed / 修复
+
+- **A renewal can no longer resurrect a session that is being signed out.**
+  `refresh()` now refuses to start while the state is [LoggingOut], and `logout()`
+  bumps the epoch once more after clearing the store. Previously a renewal started
+  during the backend logout's round trip shared the logout's epoch, so it landed
+  afterwards and restored both the in-memory session and the persisted one.
+  - **续期再也无法让「正在登出」的会话复活。** `refresh()` 现在会在状态为
+    [LoggingOut] 时拒绝启动，`logout()` 也会在清空存储之后再自增一次 epoch。此前在
+    后端登出往返期间启动的续期与登出共享同一 epoch，于是会在登出完成后落地，把内存
+    会话与持久化会话一并恢复。
+- **A nonsensical `clockSkewFraction` no longer escapes as `UnsupportedError`.**
+  `NaN`, a negative value and infinity all degrade to "no cap", instead of
+  producing a negative skew or throwing out of `validAccessToken()` — a raw
+  error crossing the public surface, which the package promises never happens.
+  - **无意义的 `clockSkewFraction` 不再以 `UnsupportedError` 逃出。** `NaN`、负数与
+    infinity 一律降级为「不设上限」，而不是产生负容差或从 `validAccessToken()` 抛出
+    异常 —— 后者属于裸错误跨越公共 API，是本包承诺不会发生的事。
+
+### Changed / 变更
+
+- **`AuthSession.tryFromJson` now rejects `claims` whose keys are not strings.**
+  `cast` is a lazy view, so such a map used to pass validation and then throw a
+  `TypeError` the first time a claim was read. It now returns `null`, so
+  "parsed successfully" really means "safe to read" — which is what the docs
+  promise for anything loaded from disk or secure storage.
+  - **`AuthSession.tryFromJson` 现在会拒绝键不是字符串的 `claims`。** `cast` 是惰性
+    视图，这类映射过去能通过校验，然后在首次读取 claim 时抛出 `TypeError`。现在它会
+    返回 `null`，让「解析成功」真正等于「可以安全读取」—— 这正是文档对磁盘 / 安全存储
+    数据的承诺。
+
 ## 1.1.0
 
 ### Added / 新增

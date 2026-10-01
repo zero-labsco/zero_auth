@@ -234,7 +234,17 @@ final class AuthManager implements AuthTokenSource {
     final lifetime = _observedLifetime;
     if (lifetime == null || clockSkew <= Duration.zero) return clockSkew;
 
-    final cap = lifetime.inMicroseconds * clockSkewFraction;
+    final fraction = clockSkewFraction;
+    // A nonsensical fraction must degrade to "no cap", never to a negative —
+    // let alone to the `UnsupportedError` a `NaN.toInt()` would throw out of
+    // `validAccessToken()`.
+    // 无意义的比例必须降级为「不设上限」，绝不能变成负值 —— 更不能让 `NaN.toInt()`
+    // 抛出的 `UnsupportedError` 从 `validAccessToken()` 里逃出去。
+    if (fraction.isNaN || fraction.isInfinite || fraction < 0) {
+      return clockSkew;
+    }
+
+    final cap = lifetime.inMicroseconds * fraction;
     if (cap >= clockSkew.inMicroseconds) return clockSkew;
     return Duration(microseconds: cap.toInt());
   }
@@ -253,6 +263,18 @@ final class AuthManager implements AuthTokenSource {
   /// 会话，其剩余时间（几乎）就是完整寿命。这里保留的是最大值而非最新值，因此一个
   /// 在生命周期中途被恢复的会话不会让上限变小。
   Duration? _observedLifetime;
+
+  /// Forgets the observed lifetime so the next installed session re-observes it.
+  ///
+  /// A fresh login is the only moment a token's whole life is really visible — a
+  /// restored session may already be half-way through it — so every new
+  /// credentials flow resets the observation. Without this, a backend that
+  /// shortened its TTL would stay capped by a lifetime seen months ago.
+  /// 忘掉已观测的寿命，使下一个被安装的会话重新观测。
+  ///
+  /// 只有全新登录时令牌的完整寿命才真正可见 —— 被恢复的会话可能已经过半 —— 因此每次
+  /// 凭据流程都会重置观测。否则后端缩短 TTL 后，仍会被几个月前观测到的寿命钳制。
+  void _resetLifetimeObservation() => _observedLifetime = null;
 
   void _observeLifetime(AuthSession session) {
     final expiry = session.expiresAt;
@@ -341,6 +363,10 @@ final class AuthManager implements AuthTokenSource {
 
   Future<void> _restore(bool refreshIfExpired) async {
     final epoch = _epoch;
+    // Emitted up front so a cold start can render "restoring…" instead of
+    // flashing the signed-out screen before the session arrives.
+    // 提前发出，让冷启动能渲染「恢复中…」，而不是在会话到达前闪一下未登录界面。
+    _emit(const Restoring());
 
     final AuthSession? session;
     try {
@@ -493,6 +519,7 @@ final class AuthManager implements AuthTokenSource {
       final session = await strategy.login(credentials);
       _ensureCurrent(epoch);
       await _persist(session);
+      _resetLifetimeObservation();
       final next = Authenticated(session);
       _activate(session);
       return next;
@@ -519,6 +546,7 @@ final class AuthManager implements AuthTokenSource {
       final session = await strategy.register(input);
       _ensureCurrent(epoch);
       await _persist(session);
+      _resetLifetimeObservation();
       final next = Authenticated(session);
       _activate(session);
       return next;
@@ -557,6 +585,7 @@ final class AuthManager implements AuthTokenSource {
       final session = await flow(strategy);
       _ensureCurrent(epoch);
       await _persist(session);
+      _resetLifetimeObservation();
       final next = Authenticated(session);
       _activate(session);
       return next;
@@ -673,6 +702,10 @@ final class AuthManager implements AuthTokenSource {
     } catch (e) {
       clearError = e;
     }
+    // Bumped once more: anything that slipped in while the backend logout was in
+    // flight is now stale and must not write afterwards.
+    // 再自增一次：后端登出进行期间挤进来的任何工作此刻都已过时，不得再写入。
+    _invalidateInFlight();
     _emit(const Unauthenticated());
 
     if (clearError != null) {
@@ -699,6 +732,16 @@ final class AuthManager implements AuthTokenSource {
   /// 守卫一致），因此忘记 `await` 的调用方也会看到失败，而不是一个未处理的异步错误。
   Future<AuthSession> refresh() {
     _checkUsable();
+    // A session that is already being discarded must not be renewed: the renewal
+    // would land after the sign-out and resurrect it — in memory *and* in the
+    // store, since a successful refresh persists what it minted.
+    // 正在被丢弃的会话不得续期：该续期会在登出之后落地并让会话复活 —— 内存与存储
+    // 都会复活，因为一次成功的续期会把它签发的令牌持久化。
+    if (_state is LoggingOut) {
+      throw NoActiveSessionException(
+        message: 'Cannot refresh while signing out',
+      );
+    }
     final session = _activeSession;
     if (session == null) {
       throw NoActiveSessionException();

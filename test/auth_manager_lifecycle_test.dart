@@ -449,11 +449,42 @@ void main() {
       await manager.restore();
       await pump();
 
-      // Only the replayed initial value; the "nothing persisted" emission is a
-      // duplicate and therefore suppressed.
-      // 只有重放的初始值；「无持久化会话」那次通知是重复值，因此被抑制。
-      expect(states.length, 1);
-      expect(states.single, const Unauthenticated());
+      // The initial replay, then `Restoring`, then `Unauthenticated` — a restore
+      // is now observable instead of looking like "still signed out".
+      // 先是重放的初始值，然后是 `Restoring`，最后是 `Unauthenticated` —— 恢复过程现在
+      // 可见了，而不是看起来「仍未登录」。
+      expect(states, [
+        const Unauthenticated(),
+        const Restoring(),
+        const Unauthenticated(),
+      ]);
+      await sub.cancel();
+      await manager.dispose();
+    });
+
+    test('a restore that finds nothing emits Restoring exactly once', () async {
+      final manager = AuthManager(
+        strategy: FakeAuthStrategy(session: buildSession()),
+        tokenStore: InMemoryTokenStore(),
+        clock: () => fixedNow,
+      );
+      final states = <AuthState>[];
+      final sub = manager.state.listen(states.add);
+
+      // Concurrent, not sequential: the second call must join the first.
+      // 并发而非串行：第二次调用必须加入第一次。
+      await Future.wait([
+        manager.restore(),
+        manager.restore(),
+      ]);
+      await pump();
+
+      // A shared attempt means `Restoring` is not emitted twice.
+      // 共享同一次尝试意味着 `Restoring` 不会重复发出。
+      expect(
+        states.whereType<Restoring>().length,
+        1,
+      );
       await sub.cancel();
       await manager.dispose();
     });

@@ -12,7 +12,7 @@
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 推荐升级：** `1.1.0` 补上了最后一个「持久化丢失」漏洞 —— `TokenStore.save()` 的瞬时失败现在会重试一次，仍失败时以专门的 `code` 上报，因此设备再也不会与已轮换的后端失同步。它还通过 `onObserverError` 让观察者失败可见，新增 `clockSkewFraction`（为极短寿命令牌设置容差上限）与 `AuthManagerGroup.restoreAll(parallel:)`。**无需任何迁移：** 所有新增都是可选的。请使用 `zero_auth: ^1.1.0`（Git 方式用 `ref: release/v1.1.0`）。
+> **🔔 推荐升级：** `2.0.0` 是**破坏性**版本，有两处迁移：`AuthSession` 不再能用 `const` 构造且其 `claims` 现在不可变（会被拷贝并冻结）；`AuthState` 新增了 `Restoring` 子类 —— 穷举 `switch` 需要补上新分支。它还补上了一个「登出漏洞」（`logout()` 仍在请求后端期间启动的续期，过去会在登出后让会话复活），让无意义的 `clockSkewFraction` 不再抛出裸错误，并新增 `Restoring` 以便冷启动显示「恢复中…」。请使用 `zero_auth: ^2.0.0`（Git 方式用 `ref: release/v2.0.0`）。
 
 🌐 **[官方网站](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[在 pub.dev 查看](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[查看 GitHub 仓库](https://github.com/zero-labsco/zero_auth)**
 
@@ -64,7 +64,7 @@
 
 ```yaml
 dependencies:
-  zero_auth: ^1.1.0
+  zero_auth: ^2.0.0
 ```
 
 ### Git
@@ -74,7 +74,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v1.1.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
+      ref: release/v2.0.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
 ```
 
 ## 使用方法

@@ -631,6 +631,36 @@ void main() {
       await manager.dispose();
     });
 
+    test('a nonsensical clockSkewFraction falls back to the full skew',
+        () async {
+      for (final fraction in <double>[double.nan, -1, double.infinity]) {
+        final strategy = _FixedStrategy(
+          session: _session(
+            'a',
+            expiresAt: now.add(const Duration(seconds: 10)),
+          ),
+          refreshed: _session('b'),
+        );
+        final manager = AuthManager(
+          strategy: strategy,
+          tokenStore: _MemStore(),
+          clock: () => now,
+          clockSkew: const Duration(seconds: 30),
+          clockSkewFraction: fraction,
+        );
+        await manager.login(_credentials);
+
+        // NaN must never escape as `UnsupportedError` from `toInt()`, a negative
+        // must not invert expiry, and infinity explicitly means "no cap".
+        expect(
+          await manager.validAccessToken(),
+          'b',
+          reason: 'clockSkewFraction=$fraction',
+        );
+        await manager.dispose();
+      }
+    });
+
     test('validAccessToken(leeway:) overrides the manager default', () async {
       final manager = AuthManager(
         strategy: _FixedStrategy(
@@ -711,6 +741,25 @@ void main() {
       );
 
       expect(AuthSession.tryFromJson(session.toJson()), session);
+    });
+
+    test('tryFromJson rejects claims whose keys are not strings', () {
+      // `cast` is lazy, so a non-String key would otherwise pass validation and
+      // only blow up (as a TypeError) the first time a claim is read.
+      expect(
+        AuthSession.tryFromJson(<Object?, Object?>{
+          'accessToken': 'a',
+          'claims': <Object?, Object?>{1: 'x'},
+        }),
+        isNull,
+      );
+      expect(
+        AuthSession.tryFromJson(<Object?, Object?>{
+          'accessToken': 'a',
+          'claims': <Object?, Object?>{'role': 'admin'},
+        }),
+        isNotNull,
+      );
     });
 
     test('nested claims compare and hash by content', () {

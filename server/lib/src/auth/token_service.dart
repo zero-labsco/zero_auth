@@ -87,6 +87,16 @@ final class TokenService {
     if (exp is! int) return null;
     if (_seconds(DateTime.now()) - _clockSkew.inSeconds > exp) return null;
 
+    // Reject tokens minted in the future: they are forged, or they come from a
+    // host whose clock runs ahead of this one.
+    // 拒绝「未来签发」的令牌：它们要么是伪造的，要么来自时钟快于本机的主机。
+    final issuedAtMillis = claims[Claims.issuedAtMillis];
+    if (issuedAtMillis is int &&
+        issuedAtMillis >
+            DateTime.now().millisecondsSinceEpoch + _clockSkew.inMilliseconds) {
+      return null;
+    }
+
     if (expectedType != null && claims[Claims.type] != expectedType.name) {
       return null;
     }
@@ -94,8 +104,15 @@ final class TokenService {
   }
 
   /// Reads a claim from an already-verified token.
-  static String? claimOf(Map<String, dynamic> claims, String key) =>
-      claims[key] as String?;
+  ///
+  /// Type-checked rather than cast: a claim carrying the wrong type must read as
+  /// absent, not as a `TypeError` escaping into the request handler.
+  /// 用类型判断而非硬转换：类型不符的 claim 应当读作「不存在」，而不是让 `TypeError`
+  /// 逃进请求处理器。
+  static String? claimOf(Map<String, dynamic> claims, String key) {
+    final value = claims[key];
+    return value is String ? value : null;
+  }
 
   /// A fresh, unguessable identifier for `jti` and token families.
   String newId([int bytes = 16]) {

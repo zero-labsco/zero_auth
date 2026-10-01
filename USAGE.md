@@ -50,7 +50,7 @@ your storage  ──▶  TokenStore     ──▶               ──▶  acces
 
 ```yaml
 dependencies:
-  zero_auth: ^1.1.0
+  zero_auth: ^2.0.0
 ```
 
 ```dart
@@ -688,7 +688,7 @@ Readable members / 可读成员：
 | `strategy` | `final AuthStrategy` | Your backend boundary / 后端边界 |
 | `tokenStore` | `final TokenStore` | Defaults to `InMemoryTokenStore` |
 | `clockSkew` | `final Duration` | How much earlier a token counts as expired (default 30s) / 提前多久把令牌视为过期（默认 30 秒） |
-| `clockSkewFraction` | `final double` | Caps `clockSkew` at this fraction of the observed token lifetime (default `0.25`); `double.infinity` disables the cap / 把 `clockSkew` 钳制为观测到的令牌寿命的这个比例（默认 `0.25`）；`double.infinity` 关闭该上限 |
+| `clockSkewFraction` | `final double` | Caps `clockSkew` at this fraction of the observed token lifetime (default `0.25`); `double.infinity` disables the cap. `NaN` and negative values also mean "no cap" rather than an error / 把 `clockSkew` 钳制为观测到的令牌寿命的这个比例（默认 `0.25`）；`double.infinity` 关闭该上限。`NaN` 与负值同样表示「不设上限」，而不是报错 |
 | `preserveSessionDetails` | `final bool` | Carry identity fields across a renewal that returns tokens only (default `true`) / 只返回令牌的续期是否保留身份字段（默认 `true`） |
 | `onStateChanged` | `final void Function(AuthState)?` | Called for every emission; handy for logging or analytics without subscribing / 每次发出状态时调用，便于日志或埋点 |
 | `onObserverError` | `final void Function(Object, StackTrace)?` | Called when `onStateChanged` throws, so a broken sink is reported instead of failing silently. Never affects the state machine / 当 `onStateChanged` 抛异常时调用，使坏掉的日志/埋点被上报而不是静默失败；绝不影响状态机 |
@@ -703,7 +703,7 @@ Readable members / 可读成员：
 | `register()` | `Future<Authenticated> register(RegistrationInput)` | Same semantics as `login` |
 | `loginWith()` | `Future<Authenticated> loginWith(Future<AuthSession> Function(AuthStrategy))` | Adopts a session from any flow (OAuth, magic link, passkey) / 接纳任意流程的会话 |
 | `logout()` | `Future<void>` | Emits `LoggingOut`, best-effort `strategy.logout`, then `clear()`, then `Unauthenticated` |
-| `refresh()` | `Future<AuthSession>` | Emits `Refreshing`; single-flight within an epoch; on failure applies `refreshFailurePolicy` / 发出 `Refreshing`；同一 epoch 内单飞；失败时按策略处理 |
+| `refresh()` | `Future<AuthSession>` | Emits `Refreshing`; single-flight within an epoch; on failure applies `refreshFailurePolicy`. Refused while the state is `LoggingOut`, so a renewal cannot resurrect a session that is being discarded / 发出 `Refreshing`；同一 epoch 内单飞；失败时按策略处理。状态为 `LoggingOut` 时会被拒绝，避免续期让正在丢弃的会话复活 |
 | `validAccessToken()` | `Future<String?> validAccessToken({Duration? leeway})` | Never returns an expired token; refreshes first when it expires within `leeway` (default `clockSkew`) / 绝不返回过期令牌；会在 `leeway`（默认 `clockSkew`）内过期时先续期 |
 | `updateSession()` | `Future<Authenticated> updateSession(AuthSession Function(AuthSession current))` | Replaces the active session without a re-login (profile update, refreshed claims); throws `NoActiveSessionException` when signed out / 免重新登录替换活动会话 |
 | `supports<T>()` | `bool supports<T>()` | Whether the strategy implements an optional capability / 策略是否实现了某可选能力 |
@@ -715,6 +715,7 @@ Readable members / 可读成员：
 |---|---|---|
 | `Unauthenticated` | – | No session |
 | `Authenticating` | – | login / register in flight |
+| `Restoring` | – | `restore()` in flight; no session yet |
 | `Authenticated` | `AuthSession session` | Session active |
 | `Refreshing` | `AuthSession session` | Renewal in flight; the previous session stays usable |
 | `LoggingOut` | `AuthSession session` | Logout in flight; that session is being discarded |
@@ -727,7 +728,7 @@ returns the session any state carries (`Authenticated` / `Refreshing` /
 `LoggingOut`), or `null` — no pattern-matching needed for the common case.
 
 `isAuthenticated` 在 `Authenticated` 与 `Refreshing` 下均为 `true`，令牌续期不会卸载
-已登录界面；`isBusy` 覆盖 `Authenticating`、`Refreshing`、`LoggingOut`；
+已登录界面；`isBusy` 覆盖 `Authenticating`、`Restoring`、`Refreshing`、`LoggingOut`；
 `AuthSession? get session` 返回该状态携带的会话（`Authenticated` / `Refreshing` /
 `LoggingOut`）或 `null`，常见场景无需再做模式匹配。
 
@@ -743,15 +744,25 @@ added two subtypes, so existing switches may need the new cases.
 ### 11.3 `AuthSession`
 
 ```dart
-const AuthSession({
+AuthSession({
   required String accessToken,
   RefreshToken? refreshToken,
   DateTime? expiresAt,
   String? userId,
   String? displayName,
-  Map<String, Object?>? claims,
+  Map<String, Object?>? claims,   // copied and frozen — see below
 });
 ```
+
+> `claims` is copied and made unmodifiable at construction: mutating the map you
+> passed in afterwards cannot change the session, and `session.claims` rejects
+> writes with `UnsupportedError`. It still compares by content against a plain
+> map literal. Since freezing is a runtime step, `AuthSession` is **not**
+> `const`-constructible.
+>
+> `claims` 在构造时会被拷贝并设为不可修改：之后修改你传入的映射不会改变会话，且
+> `session.claims` 的写入会抛 `UnsupportedError`；它与普通映射字面量的比较仍按内容
+> 进行。由于冻结是运行时步骤，`AuthSession` **不能**用 `const` 构造。
 
 | Member | Type | Notes |
 |---|---|---|
@@ -766,7 +777,7 @@ const AuthSession({
 | `isExpiringWithin(window, [now])` | `bool` | Renew a little before it dies / 在真正失效前提前续期 |
 | `copyWith(...)` | `AuthSession` | `null` keeps the current value / 传 `null` 表示保留原值 |
 | `toJson()` / `fromJson()` | `Map` / `AuthSession` | Persistence; `fromJson` throws on malformed input / 持久化，畸形数据会抛异常 |
-| `AuthSession.tryFromJson()` | `AuthSession?` | Same, but `null` instead of throwing / 同上，但返回 `null` 而非抛异常 |
+| `AuthSession.tryFromJson()` | `AuthSession?` | Same, but `null` instead of throwing. Also rejects `claims` with non-string keys, which would otherwise only fail (as a `TypeError`) when a claim is first read / 同上，但返回 `null` 而非抛异常。还会拒绝键不是字符串的 `claims` —— 否则这类数据要等到首次读取 claim 时才以 `TypeError` 失败 |
 
 Value equality on `accessToken`, `refreshToken`, `expiresAt`, `userId`,
 `displayName` **and `claims`** — nested maps and lists are compared by content,
@@ -931,7 +942,7 @@ class FakeStrategy implements AuthStrategy {
   @override
   Future<AuthSession> login(Credentials c) async {
     if (failLogin) throw AuthException('nope', code: 'invalid_credentials');
-    return const AuthSession(
+    return AuthSession(
       accessToken: 'a',
       refreshToken: RefreshToken('r'),
       userId: 'u1',
@@ -947,7 +958,7 @@ class FakeStrategy implements AuthStrategy {
   Future<void> logout(SessionHandle h) async {}
 
   @override
-  Future<AuthSession> refresh(RefreshToken t) async => const AuthSession(
+  Future<AuthSession> refresh(RefreshToken t) async => AuthSession(
         accessToken: 'a2',
         refreshToken: RefreshToken('r2'),
         userId: 'u1',

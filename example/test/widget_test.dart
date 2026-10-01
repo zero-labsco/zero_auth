@@ -6,6 +6,13 @@ void main() {
   testWidgets('demo app shows the unauthenticated state', (tester) async {
     await tester.pumpWidget(const DemoApp());
 
+    // A cold start emits `Restoring` synchronously, before the store answers.
+    expect(find.text('state: Restoring'), findsOneWidget);
+
+    // …and settles on `Unauthenticated` once the (empty) store is read.
+    await tester.pump();
+    await tester.pump();
+
     expect(find.text('state: Unauthenticated'), findsOneWidget);
     expect(find.text('signed out'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Log in'), findsOneWidget);
@@ -23,6 +30,8 @@ void main() {
       addTearDown(tester.view.reset);
 
       await tester.pumpWidget(const DemoApp());
+      // One pump for the `Restoring` emission, one for the settled state.
+      await tester.pump();
       await tester.pump();
 
       expect(

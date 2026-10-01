@@ -1,5 +1,11 @@
 import 'package:meta/meta.dart';
-import 'package:zero_auth/zero_auth.dart';
+
+// Imported directly rather than through `package:zero_auth/zero_auth.dart`: that
+// barrel re-exports this file, so importing it back would make the two mutually
+// dependent.
+// 直接导入而非经由 `package:zero_auth/zero_auth.dart`：该 barrel 会再导出本文件，
+// 反向导入会让两者互相依赖。
+import 'app_exception.dart';
 
 /// An explicit success/failure wrapper.
 /// 显式的成功 / 失败包装。

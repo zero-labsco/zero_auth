@@ -1,16 +1,18 @@
 # Known Risks & Post-release Watchlist / 已知风险与发版后观察清单
 
-> Scope / 适用范围: `zero_auth` **1.1.0**.
+> Scope / 适用范围: `zero_auth` **1.1.1**.
 > 本文件记录发版时**有意接受**的风险与需要观察的项 —— 它们不是已知缺陷（缺陷见
-> `CHANGELOG.md` 的 1.1.0 "Fixed" 段），而是"当前判断下性价比最高的选择"。
+> `CHANGELOG.md` 的 1.1.1 "Fixed" 段），而是"当前判断下性价比最高的选择"。
 > Each entry states what could go wrong, how to notice it, and what to do if it
 > does. 每条都写清：会出什么问题、如何察觉、真发生了怎么办。
 >
-> **Risk ids are never reused** — R1–R4, R8, R10 and R12 were addressed in
-> `1.1.0` and removed from this file, so the ids below are deliberately not
-> contiguous. A new risk always takes the next unused number.
-> **风险编号不会复用** —— R1–R4、R8、R10、R12 已在 `1.1.0` 兑现并从本文件移除，
-> 因此下方编号刻意不连续。新增风险一律取下一个未使用的编号。
+> **Risk ids are never reused** — R1–R4, R6, R8, R10 and R12 are gone: they were
+> addressed in `1.1.0` / `2.0.0` and removed from this file, so the ids below are
+> deliberately not contiguous. A new risk always takes the next unused number
+> (`R13` onwards).
+> **风险编号不会复用** —— R1–R4、R6、R8、R10、R12 已分别在 `1.1.0` / `2.0.0` 兑现并
+> 从本文件移除，因此下方编号刻意不连续。新增风险一律取下一个未使用的编号（从 `R13`
+> 开始）。
 >
 > Repo-internal: this file is **not** published to pub.dev (see `.pubignore`).
 > 仓库内部文档，**不**随包发布（见 `.pubignore`）。
@@ -27,19 +29,6 @@
 | Watch / 观察 | `activeId` unexpectedly `null`, or an account disappearing from `accountIds`. `activeId` 意外变成 `null`，或某个账号从 `accountIds` 中消失。 |
 | Mitigation today / 当前缓解 | Always release accounts through `group.remove(id)` / `group.disposeAll()`. 始终通过 `group.remove(id)` / `group.disposeAll()` 释放。 |
 | Plan / 计划 | None — intended behaviour. Keep as-is in 1.x. 无需变更，这是预期行为，1.x 保持。 |
-
----
-
-## R6. Freezing the API means some future needs cost a major / 冻结 API 的代价：部分需求将需要 major 版本
-
-| | |
-|---|---|
-| Risk / 风险 | `AuthState` is sealed: adding a subtype (say `Restoring`) after 1.0.0 is a breaking change, so it waits for 2.0. `AuthState` 是密封类：1.0.0 之后新增子类（如 `Restoring`）属于破坏性变更，只能等到 2.0。 |
-| Why accepted / 为何接受 | 1.0.0 exists precisely to make that promise. Consumers can rely on exhaustive switches. 1.0.0 的意义就在于给出这个承诺，使用方可以放心写穷举 switch。 |
-| Trigger / 触发条件 | A future feature that genuinely needs a new state (e.g. "restoring…" as a distinct UI state). 未来某个特性确实需要新状态（例如把「恢复中」做成独立 UI 状态）。 |
-| Watch / 观察 | Feature requests asking for new states or for `AuthStrategy` to grow beyond four methods. 要求新增状态、或要求 `AuthStrategy` 突破四个方法的 feature request。 |
-| Mitigation today / 当前缓解 | Express variation additively: `AuthState.session`, `isBusy`, `AuthError.error.code`, optional capability interfaces via `supports<T>()`. 用可追加的方式表达变化：`AuthState.session`、`isBusy`、`AuthError.error.code`，以及用 `supports<T>()` 检测的可选能力接口。 |
-| Plan / 计划 | Track such requests; batch them into a single 2.0 if the pattern repeats. 收集此类需求；若形成模式，集中到 2.0 一次解决。 |
 
 ---
 
@@ -78,7 +67,7 @@
 | Trigger / 触发条件 | A backend that returns tokens only **and** whose claims can change between renewals. 后端续期只返回令牌，**且**其 claims 会在两次续期之间变化。 |
 | Watch / 观察 | A display name or permission that does not update until the next full login. 显示名或权限直到下次完整登录才更新。 |
 | Mitigation today / 当前缓解 | Documented on the Configuration page. Pull authoritative claims with `updateSession()` when you need them, or set `preserveSessionDetails: false` to take the backend answer verbatim. 已写入配置页。需要权威 claims 时用 `updateSession()` 拉一次，或把 `preserveSessionDetails` 设为 `false`，原样采用后端响应。 |
-| Plan / 计划 | Keep the default; revisit at `1.1.0` on feedback. 保留默认值；`1.1.0` 依反馈复查。 |
+| Plan / 计划 | Keep the default; revisit at `1.2.0` on feedback. 保留默认值；`1.2.0` 依反馈复查。 |
 
 ---
 

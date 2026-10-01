@@ -15,6 +15,16 @@ analyzer:
     # 无法解析该名称，因此在根目录分析会全部报 “Target of URI doesn't exist”。
     # 它单独分析：本地用 `cd server && dart analyze`，CI 由 server-check job 负责。
     - server/**
+    # `example/` 同样是独立 package，而且依赖 Flutter SDK 与插件
+    # (`flutter_secure_storage`, `flutter_test`)；根包的 package config 解析不到
+    # 它们，于是 `example/lib` 与 `example/test` 会在根目录分析时报
+    # “Target of URI doesn't exist”。它由 CI 的 `flutter analyze lib/ test/`
+    # 单独覆盖，本地用 `cd example && flutter analyze`。
+    # `example/` is a standalone Flutter package: its plugin and `flutter_test`
+    # imports cannot be resolved from the pure-Dart root package config, so
+    # analysing it here reports “Target of URI doesn't exist”. CI covers it with
+    # `flutter analyze lib/ test/` instead.
+    - example/**
 
 linter:
   rules:

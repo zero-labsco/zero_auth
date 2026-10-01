@@ -131,7 +131,7 @@ void main() {
   group('AuthManager — restore', () {
     test('loads a persisted session', () async {
       final store = InMemoryTokenStore();
-      await store.save(const AuthSession(accessToken: 'a', userId: 'u'));
+      await store.save(AuthSession(accessToken: 'a', userId: 'u'));
       final manager = AuthManager(
         strategy: FakeAuthStrategy(),
         tokenStore: store,
@@ -173,7 +173,7 @@ void main() {
         () async {
       final manager = AuthManager(
         strategy: FakeAuthStrategy(
-          session: const AuthSession(accessToken: 'access-only'),
+          session: AuthSession(accessToken: 'access-only'),
         ),
       );
       await manager.login(const Credentials(username: 'a', password: 'b'));
@@ -219,7 +219,7 @@ void main() {
     test('does not schedule without a refresh token', () {
       FakeAsync().run((async) {
         final strategy = FakeAuthStrategy(
-          session: const AuthSession(
+          session: AuthSession(
             accessToken: 'access',
             userId: 'u1',
             expiresAt: null,

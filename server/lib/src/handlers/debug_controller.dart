@@ -34,7 +34,7 @@ final class DebugController {
   /// auto-renewal path can be watched without waiting.
   Future<void> setAccessTtl(HttpRequest request) async {
     final body = await readJsonBody(request);
-    final seconds = body['seconds'];
+    final seconds = body?['seconds'];
     if (seconds is! int || seconds < 1) {
       await sendJson(request, 400, {
         'code': 'bad_request',

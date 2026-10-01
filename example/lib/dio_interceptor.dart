@@ -83,9 +83,26 @@ final class RefreshingAuthInterceptor extends QueuedInterceptor {
     RequestOptions options,
     RequestInterceptorHandler handler,
   ) async {
-    final token = await source.validAccessToken();
-    if (token != null) {
-      options.headers['Authorization'] = 'Bearer $token';
+    try {
+      final token = await source.validAccessToken();
+      if (token != null) {
+        options.headers['Authorization'] = 'Bearer $token';
+      }
+    } on Object catch (error) {
+      // `handler.next` must always run: this method is `async`, so a thrown
+      // error would become an unawaited future and leave the request hanging —
+      // and since this is a `QueuedInterceptor`, one hanging request stalls
+      // every request behind it.
+      // `handler.next` 必须始终被调用：本方法是 `async`，抛出的异常会变成无人等待的
+      // future，让请求永久挂起 —— 而它又是 `QueuedInterceptor`，一个挂起会堵住后面
+      // 的所有请求。
+      handler.reject(
+        DioException.requestCancelled(
+          requestOptions: options,
+          reason: error,
+        ),
+      );
+      return;
     }
     handler.next(options);
   }

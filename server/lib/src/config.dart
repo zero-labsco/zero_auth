@@ -54,6 +54,13 @@ final class ServerConfig {
   /// about at startup.
   final bool usingDefaultSecret;
 
-  /// Bind address. `0.0.0.0` listens on every interface.
-  InternetAddress get address => InternetAddress.anyIPv4;
+  /// Bind address, derived from `HOST` (`0.0.0.0` listens on every interface).
+  ///
+  /// Falls back to every interface when `HOST` is not a literal IP address —
+  /// for example a hostname, which `HttpServer.bind` would resolve anyway.
+  /// 绑定地址，由 `HOST` 推导（`0.0.0.0` 表示监听所有网卡）。
+  ///
+  /// 当 `HOST` 不是字面量 IP 地址时（例如主机名）回退到所有网卡。
+  InternetAddress get address =>
+      InternetAddress.tryParse(host) ?? InternetAddress.anyIPv4;
 }

@@ -47,6 +47,38 @@ void main() {
       await manager.dispose();
     });
 
+    test('a renewal cannot start while the session is being discarded',
+        () async {
+      final strategy = _GateStrategy(
+        logoutDelay: const Duration(milliseconds: 50),
+      );
+      final store = _RecordingStore();
+      final manager = AuthManager(strategy: strategy, tokenStore: store);
+
+      await manager.login(_credentials);
+
+      final loggingOut = manager.logout();
+      await pump();
+      // The backend logout is still in flight.
+      expect(manager.current, isA<LoggingOut>());
+
+      // A renewal attempted mid-sign-out is refused instead of being allowed to
+      // land afterwards and resurrect the session (in memory *and* in the store).
+      expect(
+        () => manager.refresh(),
+        throwsA(isA<NoActiveSessionException>()),
+      );
+      // Reading a token is safe too: `LoggingOut` carries no usable session.
+      expect(await manager.validAccessToken(), isNull);
+
+      await loggingOut;
+
+      expect(manager.current, const Unauthenticated());
+      expect(await store.load(), isNull);
+
+      await manager.dispose();
+    });
+
     test('a renewal in flight when dispose lands completes quietly', () {
       FakeAsync().run((async) {
         final strategy = _GateStrategy();
@@ -105,6 +137,12 @@ final class _RecordingStore implements TokenStore {
 /// test can decide exactly when a renewal lands.
 /// 其 `refresh` 在调用 [complete] 之前永不完成的策略，便于测试精确控制续期落地的时刻。
 final class _GateStrategy implements AuthStrategy {
+  /// How long the backend `logout()` takes. Non-zero keeps the manager in
+  /// `LoggingOut` long enough for a test to act inside that window.
+  /// 后端 `logout()` 的耗时。非零可让管理器停留在 `LoggingOut`，便于测试在该窗口内动作。
+  _GateStrategy({this.logoutDelay = Duration.zero});
+
+  final Duration logoutDelay;
   Completer<AuthSession>? _gate;
   int refreshCount = 0;
 
@@ -123,7 +161,11 @@ final class _GateStrategy implements AuthStrategy {
   Future<AuthSession> register(RegistrationInput input) async => gated('a');
 
   @override
-  Future<void> logout(SessionHandle handle) async {}
+  Future<void> logout(SessionHandle handle) async {
+    if (logoutDelay > Duration.zero) {
+      await Future<void>.delayed(logoutDelay);
+    }
+  }
 
   @override
   Future<AuthSession> refresh(RefreshToken token) {
