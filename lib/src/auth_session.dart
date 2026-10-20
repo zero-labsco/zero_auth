@@ -313,24 +313,33 @@ final class AuthSession {
 
   static Object? _freeze(Object? value) {
     if (value is Map) {
-      return Map<Object?, Object?>.unmodifiable({
+      return _FrozenMap(<Object?, Object?>{
         for (final entry in value.entries) entry.key: _freeze(entry.value),
       });
     }
     if (value is List) {
-      return List<Object?>.unmodifiable([
-        for (final item in value) _freeze(item),
-      ]);
+      return _FrozenList(<Object?>[for (final item in value) _freeze(item)]);
     }
     // Scalars — and any custom object — are kept by reference.
     return value;
   }
 
-  static int _claimsHash(Map<String, Object?>? claims) {
+  static int _claimsHash(Map<Object?, Object?>? claims) {
     if (claims == null) return 0;
     var hash = 0;
     for (final entry in claims.entries) {
       hash ^= Object.hash(entry.key, _deepHash(entry.value));
+    }
+    return hash;
+  }
+
+  /// Content hash of a list, mirroring [_deepEqual]: two lists that compare
+  /// equal must hash alike.
+  /// 列表的内容哈希，与 [_deepEqual] 对应：相等的列表必须有相同的哈希。
+  static int _listHash(List<Object?> list) {
+    var hash = 0;
+    for (final item in list) {
+      hash ^= _deepHash(item);
     }
     return hash;
   }
@@ -404,4 +413,96 @@ final class _FrozenClaims extends MapBase<String, Object?> {
 
   @override
   int get hashCode => AuthSession._claimsHash(_base);
+}
+
+/// The nested sibling of [_FrozenClaims]: a frozen map **inside** `claims`, with
+/// the same content-based `==` and `hashCode`.
+///
+/// Without it, freezing would change how a nested map compares:
+/// `session.claims!['address'] == {'city': 'x'}` would silently turn `false`,
+/// exactly the trap the top-level map avoids.
+/// [_FrozenClaims] 的嵌套版兄弟：`claims` **内部**的冻结映射，`==` 与 `hashCode`
+/// 同样按内容计算。
+///
+/// 没有它，冻结就会改变嵌套映射的比较结果：`session.claims!['address'] ==
+/// {'city': 'x'}` 会静默变成 `false` —— 正是顶层映射刻意避开的那种陷阱。
+final class _FrozenMap extends MapBase<Object?, Object?> {
+  _FrozenMap(this._base);
+
+  final Map<Object?, Object?> _base;
+
+  static Never _immutable() =>
+      throw UnsupportedError('AuthSession.claims is immutable');
+
+  @override
+  Object? operator [](Object? key) => _base[key];
+
+  @override
+  void operator []=(Object? key, Object? value) => _immutable();
+
+  @override
+  void clear() => _immutable();
+
+  @override
+  Object? remove(Object? key) => _immutable();
+
+  @override
+  Iterable<Object?> get keys => _base.keys;
+
+  @override
+  int get length => _base.length;
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! Map) return false;
+    return AuthSession._deepEqual(_base, other);
+  }
+
+  @override
+  int get hashCode => AuthSession._claimsHash(_base);
+}
+
+/// The list sibling of [_FrozenClaims]: a frozen list **inside** `claims`, with
+/// content-based `==` and `hashCode`.
+///
+/// `ListBase`'s mutating methods already throw, so only the two members that
+/// make a list are implemented here — plus the content comparison.
+/// [_FrozenClaims] 的列表版兄弟：`claims` **内部**的冻结列表，`==` 与 `hashCode`
+/// 同样按内容计算。
+///
+/// `ListBase` 的变更方法本就抛异常，因此这里只需实现构成列表的两个成员 ——
+/// 外加按内容的比较。
+final class _FrozenList extends ListBase<Object?> {
+  _FrozenList(this._base);
+
+  final List<Object?> _base;
+
+  @override
+  int get length => _base.length;
+
+  @override
+  set length(int newLength) =>
+      throw UnsupportedError('AuthSession.claims is immutable');
+
+  @override
+  Object? operator [](int index) => _base[index];
+
+  @override
+  void operator []=(int index, Object? value) =>
+      throw UnsupportedError('AuthSession.claims is immutable');
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    if (other is! List) return false;
+    if (other.length != _base.length) return false;
+    for (var i = 0; i < _base.length; i++) {
+      if (!AuthSession._deepEqual(_base[i], other[i])) return false;
+    }
+    return true;
+  }
+
+  @override
+  int get hashCode => AuthSession._listHash(_base);
 }

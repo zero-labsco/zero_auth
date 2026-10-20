@@ -12,7 +12,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 Upgrade recommended:** `2.0.0` is a **breaking** release with two migration steps: `AuthSession` is no longer `const`-constructible and its `claims` are now immutable (copied and frozen), and `AuthState` gained a `Restoring` subtype — so exhaustive `switch` statements need a new case. It also closes a sign-out hole (a renewal started while `logout()` was still talking to the backend used to resurrect the session afterwards), stops a nonsensical `clockSkewFraction` from throwing a raw error, and adds `Restoring` so a cold start can show "restoring…". Pin `zero_auth: ^2.0.0` (or git `ref: release/v2.0.0`).
+> **🔔 Upgrade recommended:** `2.1.0` is additive — no migration. It hardens `updateSession()` against two failure modes (a raw exception from your update callback used to escape the public surface, and a renewal landing mid-update used to overwrite the rotated tokens with a session derived from the pre-renewal one), adds `tryLogin()` / `tryRefresh()` / `tryRestore()` for `Result`-style error handling, makes frozen nested `claims` compare by content, and aligns proactive-refresh scheduling with the capped clock skew. Pin `zero_auth: ^2.1.0` (or git `ref: release/v2.1.0`).
 
 🌐 **[Official Website](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[View on pub.dev](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[View on GitHub](https://github.com/zero-labsco/zero_auth)**
 
@@ -42,7 +42,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 ## Features
 
 - **Backend-agnostic** — a pure-Dart core; bring any backend by implementing `AuthStrategy` (REST, gRPC, Firebase, your own RPC…).
-- **Explicit state machine** — `Unauthenticated`, `Authenticating`, `Authenticated`, `Refreshing`, `LoggingOut` and `AuthError`, broadcast as a replay-last stream. Prefer `state.isAuthenticated` / `state.isBusy` over `state is Authenticated`, so a token renewal never unmounts your signed-in UI.
+- **Explicit state machine** — `Unauthenticated`, `Authenticating`, `Restoring`, `Authenticated`, `Refreshing`, `LoggingOut` and `AuthError`, broadcast as a replay-last stream. Prefer `state.isAuthenticated` / `state.isBusy` over `state is Authenticated`, so a token renewal never unmounts your signed-in UI.
 - **Silent restore & refresh** — restores the persisted session at startup (refreshing it first when it has expired) and refreshes tokens transparently (single-flight, so concurrent callers share one call).
 - **Bring your own login flow** — `loginWith` adopts a session from any flow you drive yourself: third-party OAuth, magic links, passkeys or biometric unlock.
 - **Never send an expired token** — `validAccessToken()` renews the session first when the token has expired (or is about to, per `clockSkew`); ideal for HTTP interceptors.
@@ -64,7 +64,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 
 ```yaml
 dependencies:
-  zero_auth: ^2.0.0
+  zero_auth: ^2.1.0
 ```
 
 ### Git
@@ -74,7 +74,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v2.0.0   # pin the release/vX.Y.Z branch (immutable per release)
+      ref: release/v2.1.0   # pin the release/vX.Y.Z branch (immutable per release)
 ```
 
 ## Usage
@@ -236,6 +236,22 @@ A failed refresh is also reported on the state stream as `AuthError`. Whether it
 ends the session is up to `refreshFailurePolicy`: unrecoverable failures sign the
 user out, transient ones keep the session so a retry can succeed.
 
+If you prefer explicit handling over `try/catch`, `tryLogin()`, `tryRefresh()`
+and `tryRestore()` deliver the very same outcomes as a `Result` (`Ok` on
+success, `Err` carrying the mapped `AppException` on failure) — the state stream
+behaves identically either way:
+
+```dart
+final result = await auth.tryLogin(credentials);
+switch (result) {
+  case Ok(:final value):
+    // value is the Authenticated state that was installed
+    print('signed in as ${value.session.userId}');
+  case Err(:final error):
+    print('failed: ${error.message} (${error.code})');
+}
+```
+
 ### Example app & demo backend
 
 The repo ships two runnable pieces, so you can exercise the whole lifecycle end to end:
@@ -291,7 +307,7 @@ flutter run
 
 | Member | Signature | Notes |
 |--------|-----------|-------|
-| constructor | `AuthManager({required strategy, TokenStore? tokenStore, Duration? autoRefreshAhead, Duration? autoRefreshRetryDelay, int? autoRefreshMaxRetries, Duration? autoRefreshMinInterval, RefreshFailurePolicy? refreshFailurePolicy, DateTime Function()? clock, Duration? clockSkew, bool preserveSessionDetails = true, void Function(AuthState)? onStateChanged})` | `tokenStore` defaults to `InMemoryTokenStore`; `autoRefreshAhead` enables proactive renewal, `autoRefreshRetryDelay` re-arms a failed one, `autoRefreshMaxRetries` caps those retries (default 3) and `autoRefreshMinInterval` floors an already-due one (default 5s); `clockSkew` is how much earlier a token counts as expired (default 30s); `preserveSessionDetails` keeps identity fields across a renewal; `clock` overrides the time source; `onStateChanged` observes every emission |
+| constructor | `AuthManager({required strategy, TokenStore? tokenStore, Duration? autoRefreshAhead, Duration? autoRefreshRetryDelay, int? autoRefreshMaxRetries, Duration? autoRefreshMinInterval, RefreshFailurePolicy? refreshFailurePolicy, DateTime Function()? clock, Duration? clockSkew, double clockSkewFraction = 0.25, bool preserveSessionDetails = true, void Function(AuthState)? onStateChanged, void Function(Object error, StackTrace stack)? onObserverError})` | `tokenStore` defaults to `InMemoryTokenStore`; `autoRefreshAhead` enables proactive renewal, `autoRefreshRetryDelay` re-arms a failed one, `autoRefreshMaxRetries` caps those retries (default 3) and `autoRefreshMinInterval` floors an already-due one (default 5s); `clockSkew` is how much earlier a token counts as expired (default 30s) and `clockSkewFraction` caps it for short-lived tokens; `preserveSessionDetails` keeps identity fields across a renewal; `clock` overrides the time source; `onStateChanged` observes every emission and `onObserverError` reports when it throws |
 | `current` | `AuthState get current` | Latest state, always readable |
 | `state` | `Stream<AuthState> get state` | Broadcast, replays the latest value to new listeners |
 | `currentSession` | `AuthSession? get currentSession` | Available while `Authenticated` **and** `Refreshing` |
@@ -303,7 +319,10 @@ flutter run
 | `refresh()` | `Future<AuthSession>` | Emits `Refreshing`; single-flight within one epoch; applies `refreshFailurePolicy` on failure |
 | `validAccessToken()` | `Future<String?> validAccessToken({Duration? leeway})` | Never returns an expired token; renews first when it expires within `leeway` (default `clockSkew`) |
 | `logout()` | `Future<void>` | Emits `LoggingOut`, best-effort backend call, clears the store, lands on `Unauthenticated` |
-| `updateSession()` | `Future<Authenticated> updateSession(AuthSession Function(AuthSession))` | Replaces the active session without a re-login; throws when nothing is signed in |
+| `updateSession()` | `Future<Authenticated> updateSession(FutureOr<AuthSession> Function(AuthSession current))` | Replaces the active session without a re-login; throws when nothing is signed in. A failed update keeps the session; a renewal that landed mid-update aborts it |
+| `tryLogin()` | `Future<Result<Authenticated>> tryLogin(Credentials)` | `login()` without the rethrow — the outcome arrives as a `Result` |
+| `tryRefresh()` | `Future<Result<AuthSession>> tryRefresh()` | `refresh()` without the rethrow; captures the synchronous pre-conditions too |
+| `tryRestore()` | `Future<Result<void>> tryRestore({bool refreshIfExpired = true})` | `restore()` without the rethrow — "not signed in" is still an `Ok` |
 | `supports<T>()` | `bool supports<T>()` | Whether the strategy implements an optional capability |
 | `dispose()` | `Future<void>` | Closes the stream and cancels proactive refresh. Later operations throw `AuthException(code: 'manager_disposed')` |
 
@@ -314,7 +333,7 @@ single-session, so nothing changes unless you use this.
 
 | Member | Notes |
 |--------|-------|
-| constructor | `AuthManagerGroup({required strategyFactory, required storeFactory, managerFactory, autoRefreshAhead, autoRefreshRetryDelay, autoRefreshMaxRetries, autoRefreshMinInterval, refreshFailurePolicy, clock, clockSkew, preserveSessionDetails, onStateChanged})` — both factories receive the account id; give each account its own `TokenStore`. Every manager knob is forwarded to the managers it creates; `managerFactory` builds them yourself instead |
+| constructor | `AuthManagerGroup({required strategyFactory, required storeFactory, managerFactory, autoRefreshAhead, autoRefreshRetryDelay, autoRefreshMaxRetries, autoRefreshMinInterval, refreshFailurePolicy, clock, clockSkew, preserveSessionDetails, onStateChanged, onObserverError})` — both factories receive the account id; give each account its own `TokenStore`. Every manager knob is forwarded to the managers it creates; `managerFactory` builds them yourself instead |
 | `forAccount(id)` / `addAccount(id)` | Lazily creates and caches that account's `AuthManager` |
 | `switchTo(id)` | Makes an account active; the group's `state` follows it and `activeIdChanges` emits |
 | `activeIdChanges` | `Stream<String?>` of the active account id (`null` when none is active) |
@@ -325,7 +344,7 @@ single-session, so nothing changes unless you use this.
 | `active` | `AuthManager?` — the active account's manager, `null` when none is active |
 | `current` / `state` / `currentSession` / `accessToken` | Mirror the active account |
 | `validAccessToken({leeway})` | The active account's renewed token, or `null` |
-| `restoreAll(ids, {activeId, dropOthers})` | Restores every account — one failing account does not abandon the rest — then activates one. `dropOthers: true` disposes the managers of ids that are no longer known |
+| `restoreAll(ids, {activeId, dropOthers, parallel})` | Restores every account — one failing account does not abandon the rest — then activates one. `dropOthers: true` disposes the managers of ids that are no longer known; `parallel: true` restores them concurrently |
 | `remove(id)` | Signs out and forgets an account |
 | `disposeAll()` | Releases every manager |
 
@@ -408,7 +427,7 @@ Helpers: `isAuthenticated` is `true` for `Authenticated` **and** `Refreshing`;
                                                            (previous session)
 
    logout ──► LoggingOut ──► Unauthenticated
-   restore() ──► Authenticated, or Unauthenticated when nothing persists
+   restore() ──► Restoring ──► Authenticated, or Unauthenticated when nothing persists
                  (a transient renewal failure keeps the persisted session)
 ```
 

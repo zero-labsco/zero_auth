@@ -28,7 +28,7 @@ This file defines the architecture, coding conventions, and required workflows f
 - `example/` — Flutter example app (Android / iOS / Web / Windows). `main.dart` (state machine UI + backend toggle + register flow), `dio_interceptor.dart` (`AuthInterceptor`, `RefreshingAuthInterceptor` and `AuthRetryInterceptor` — ready-to-copy Dio integrations), `secure_token_store.dart` (`flutter_secure_storage` reference `TokenStore`) and `json_token_store.dart` (`JsonTokenStore`, a `dart:io` file-backed reference store). Both reference stores are consumer material and are **not** wired into `main.dart`, which uses `InMemoryTokenStore`; `json_token_store_test.dart` covers the file-backed one so sample code cannot rot silently. `widget_test.dart` renders the app unauthenticated and at three viewport sizes.
 - `server/` — a layered `dart:io` demo backend used by the example (`dart run bin/server.dart`, port `8080`); endpoints `/login`, `/register`, `/refresh`, `/logout`, `/me`, `/health` (plus three `/debug/*` hooks the example drives). It issues real HMAC-SHA256 JWTs (via the `crypto` package) with refresh-token rotation, family revocation and replay detection, and logs every request with status and duration. Credentials are `user` / `user`; CORS enabled. Structure: `bin/server.dart` only bootstraps, everything else lives under `lib/` (`config`, `logging`, `http`, `auth`, `handlers`). It is repo-only and **not** shipped to pub.dev (excluded via `.pubignore`).
 - `zero_auth_design.md` — repo-internal design notes (excluded from the published package).
-- `website/` — the **Nextra + Next.js** documentation site (Animal-Crossing theme, copied from the `zero_inspector_kit` site). Source lives under `website/pages/*.md`; it builds to `website/out/` and is then synced into `docs/` (the GitHub Pages root) by `website/scripts/sync-docs.mjs` (run automatically via a git pre-commit hook installed with `npm --prefix website run setup-hook`). `website/` is excluded from the pub package via `.pubignore`. The homepage is `website/pages/index.md`; version strings use the `__ZERO_AUTH_VERSION__` placeholder, injected from `pubspec.yaml` at build time.
+- `website/` — the **Nextra + Next.js** documentation site (Animal-Crossing theme, copied from the `zero_inspector_kit` site). Source lives under `website/pages/*.md` and is the **only** hand-edited doc source; it builds to `website/out/`, which CI publishes to the `gh-pages` branch (see "Docs site" below). There is **no** generated `docs/` directory on `main`. `website/` is excluded from the pub package via `.pubignore`. The homepage is `website/pages/index.md`; version strings use the `__ZERO_AUTH_VERSION__` placeholder, injected from `pubspec.yaml` at build time.
 
 ### Hard constraints on `lib/`
 - **Pure Dart only.** No `dart:io`, no `dart:html`/`package:web`, no platform channels, no Flutter widgets, no HTTP client. It must run unchanged on Flutter, server and CLI.
@@ -103,7 +103,9 @@ Notes / 说明:
   - `ci.yml` — `path-filter` (dorny/paths-filter) → `analyze-and-test` (package: `dart format` + `dart analyze` + `dart test`; example: `flutter analyze` + `flutter test`), `server-check` (only when `server/**` changed), `pana-check` (pana score ≥ 120). Docs-only PRs still trigger the workflow but the heavy jobs skip green, so branch-protection required checks always resolve.
   - `pr-title-check.yml` — `amannn/action-semantic-pull-request@v6`, allowed types `feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert`; skips the `github-actions[bot]` sync commit from the format bot.
   - `dart-format-fix.yml` — auto-runs `dart format` on PRs (package + `example/` + `server/`) and pushes fixes back.
-  - `link-check.yml` — lychee scan of `README.md`, `README_zh.md`, `USAGE.md`, `CHANGELOG.md`, `docs/**`.
+  - `docs.yml` — builds the Nextra site and publishes it to the `gh-pages` branch. See "Docs site" below.
+    `docs.yml` — 构建 Nextra 站点并发布到 `gh-pages` 分支，详见下方"Docs site"。
+  - `link-check.yml` — lychee scan of `README.md`, `README_zh.md`, `USAGE.md`, `CHANGELOG.md`, `website/pages/**`.
   - `dependabot-pr-bilingual.yml` — appends a bilingual (EN/ZH) body to Dependabot PRs; `.github/dependabot.yml` tracks pub deps (root weekly, `example/` monthly) and GitHub Actions (weekly).
   - `stale.yml` — marks issues/PRs stale after 60 days.
   - `pub-publish.yml` — triggered by the `vX.Y.Z` **tag**; reuses `ci.yml`, verifies `pubspec.yaml` version == tag and that `CHANGELOG.md` has a `## X.Y.Z` entry, then publishes via `k-paxian/dart-package-publisher@v1.6` with the `PUB_CREDENTIALS_JSON` secret (do NOT pass OIDC fields) and creates the GitHub Release.
@@ -130,37 +132,42 @@ cd d:\FlutterProgram\zero_auth && dart pub publish --dry-run   # 0 warnings
 > `analysis_options.yaml` 的 `analyzer.exclude`）。在根目录分析会因
 > `package:zero_auth_example_server/...` 导入而失败，请始终在其目录内分析。
 
-### Docs site preflight (always run before pushing `website/**`)
+### Docs site (GitHub Pages — `gh-pages` branch)
 
-The Pages site is **pre-built**: `pages.yml` uploads `docs/` verbatim and never
-builds `website/`. `docs/` is regenerated only by the git pre-commit hook, so an
-uninstalled hook silently ships a stale site — missing pages, and an outdated
-version on the Installation page because `__ZERO_AUTH_VERSION__` is injected at
-build time.
-文档站是**预先构建**的：`pages.yml` 原样上传 `docs/`，从不构建 `website/`。`docs/`
-只由 git pre-commit hook 重建，hook 未安装会导致线上静默停留在旧站点——缺页面，且安装
-页版本号过期（`__ZERO_AUTH_VERSION__` 是在构建时注入的）。
+- Source content lives in `website/` (Nextra) and is the only hand-edited
+  documentation source. **Never commit a built site to `main`.**
+- CI builds and publishes: pushes to `main` touching `website/**` or
+  `pubspec.yaml` trigger `docs.yml`, which runs
+  `node website/scripts/sync-docs.mjs --ci` and force-orphan-publishes
+  `website/out/` to the root of the `gh-pages` branch as `github-actions[bot]`.
+  A separate Pages branch is required because `main` is branch-protected — the
+  bot cannot push there.
+- GitHub Pages must be pointed at that branch **once** (Settings → Pages →
+  Source: "Deploy from a branch", branch `gh-pages`, folder `/ (root)`).
+  `gh-pages` is generated and force-pushed by CI, so never commit to it by hand.
+- `website/out/` is git-ignored (see `website/.gitignore`); `main` holds no
+  `docs/` directory anymore.
+- To preview locally: `cd website && npm ci && npm run build` (output in
+  `website/out/`), or `node website/scripts/sync-docs.mjs --ci`.
+- The optional git pre-commit hook (`npm --prefix website run setup-hook`) only
+  refreshes `website/out/` locally for previews. It never stages anything, and
+  CI — not the hook — is the source of truth for the live site.
 
-```powershell
-# Once per clone — installs the hook that rebuilds & syncs docs/.
-# 每个克隆仅需一次——安装负责重建并同步 docs/ 的 hook。
-npm --prefix website run setup-hook
-
-# Sanity check — this must return True.
-# 检查——必须返回 True。
-Test-Path .git\hooks\pre-commit
-
-# Recovery — website/ already committed and docs/ still stale.
-# 补救——website/ 改动已提交、docs/ 仍是旧的。
-node website/scripts/sync-docs.mjs --force
-```
-
-> **Symptom → cause / 症状 → 原因:** you changed `website/**` (or bumped the
-> version) but `git status` shows no `docs/` changes ⇒ the hook is missing. Run
-> the setup command above, then the `--force` sync once to catch up.
->
-> 你改了 `website/**`（或升了版本号）而 `git status` 里没有 `docs/` 变化 ⇒ hook 未安装。
-> 先执行上面的安装命令，再跑一次 `--force` 补构建。
+文档站（GitHub Pages — `gh-pages` 分支）:
+- 源内容位于 `website/`（Nextra），是唯一需要手工编辑的文档源。**绝不要把构建产物提交到
+  `main`。**
+- 由 CI 构建并发布：推送到 `main` 且改动 `website/**` 或 `pubspec.yaml` 时会触发
+  `docs.yml`，它执行 `node website/scripts/sync-docs.mjs --ci`，并以
+  `github-actions[bot]` 身份把 `website/out/` 以 force-orphan 方式发布到 `gh-pages`
+  分支根目录。`main` 受分支保护、bot 无法推送，因此必须使用独立的 Pages 分支。
+- GitHub Pages 需**一次性**指向该分支（Settings → Pages → Source: "Deploy from a
+  branch"，branch `gh-pages`，folder `/ (root)`）。`gh-pages` 由 CI 生成并强制推送，
+  不要手工提交。
+- `website/out/` 已被 git 忽略（见 `website/.gitignore`）；`main` 不再包含 `docs/`。
+- 本地预览：`cd website && npm ci && npm run build`（产物在 `website/out/`），或
+  `node website/scripts/sync-docs.mjs --ci`。
+- 可选的 git pre-commit hook（`npm --prefix website run setup-hook`）仅在本地刷新
+  `website/out/` 用于预览，不会暂存任何文件；线上站点以 CI 为准，而非 hook。
 
 ### Running the demo end to end
 ```powershell
@@ -189,7 +196,7 @@ flutter run
 4. Merge the version bump to `main` (via PR, or directly if the maintainer permits).
 5. Cut the release branch from `main`: `git checkout -b release/vX.Y.Z main`. The `release/vX.Y.Z` branch is the immutable source for that version; post-release hotfixes are applied here and re-tagged, never on `main`.
 6. Tag to publish on the release branch: `git tag vX.Y.Z && git push origin release/vX.Y.Z && git push origin vX.Y.Z`. The `vX.Y.Z` **tag** (not a branch) triggers `pub-publish.yml` and publishes to pub.dev — this action is **irreversible**. Always use the `release/vX.Y.Z` prefix for the branch so it never collides with the `vX.Y.Z` tag refspec.
-- `.pubignore` keeps `server/` (demo backend), `docs/`, `build/`, `.codebuddy/`, `AGENTS.md`, `CONTRIBUTING.md`, `TODO.md`, `wiki/` and `zero_auth_design.md` out of the published tarball. `example/` is intentionally published so consumers can browse a working integration. After touching `.pubignore`, re-check with `dart pub publish --dry-run` (must report **0 warnings**).
+- `.pubignore` keeps `server/` (demo backend), `website/` (docs source), `build/`, `.codebuddy/`, `AGENTS.md`, `CONTRIBUTING.md`, `TODO.md`, `wiki/` and `zero_auth_design.md` out of the published tarball. `example/` is intentionally published so consumers can browse a working integration. After touching `.pubignore`, re-check with `dart pub publish --dry-run` (must report **0 warnings**).
 
 ## New feature development checklist
 - [ ] Confirm the change against `effective_dart` and the existing `lib/src/` structure (no `dart:io`, no Flutter imports in `lib/`).
@@ -199,9 +206,10 @@ flutter run
 - [ ] Run `dart format .`, `dart analyze`, `flutter analyze`, `flutter test` locally.
 - [ ] Use a typed branch (`feat/...`) and an English Conventional Commits PR title.
 - [ ] Mirror user-facing changes in `README.md` **and** `README_zh.md`.
+- [ ] For user-facing changes, also update `website/pages/*.md` (the site is rebuilt and published by the `docs.yml` CI workflow once the change lands on `main`; do not generate or commit `docs/`).
 - [ ] For releases, follow the **Mandatory version-bump checklist** above, cut `release/vX.Y.Z` from `main`, and tag `vX.Y.Z` to publish.
 
 ## Known gaps (do not "fix" silently — raise with the maintainer)
 - No branch protection ruleset is configured yet, so the CI required checks are advisory only.
 - `README.md` / `README_zh.md` link to `CONTRIBUTING.md`, which now exists (added alongside the docs site).
-- GitHub Pages docs site: a `.github/workflows/pages.yml` (official Actions deploy, bypassing Jekyll) exists and is pushed. Deployment still needs a one-time manual step — set **Settings → Pages → Source = GitHub Actions** — then trigger the workflow. Until then `pubspec.yaml`'s `documentation:` URL is not live.
+- GitHub Pages docs site: `.github/workflows/docs.yml` builds the site and publishes it to the `gh-pages` branch. Deployment still needs a one-time manual repo setting — set **Settings → Pages → Source = "Deploy from a branch"**, branch `gh-pages`, folder `/ (root)`. Until then `pubspec.yaml`'s `documentation:` URL is not live.

@@ -101,7 +101,7 @@ final result = await auth.loginWith((strategy) => signInWithGoogle(context));
 ```dart
 // Password users and Google users end up with the same AuthSession shape.
 // 密码用户与 Google 用户最终得到的都是同一种 AuthSession。
-await auth.login(const Credentials(username: user, password: pass));
+await auth.login(const Credentials(username: email, password: password));
 await auth.loginWith((strategy) => signInWithGoogle(context));
 ```
 

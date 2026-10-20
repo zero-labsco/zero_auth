@@ -8,9 +8,16 @@ No. The core is backend-agnostic and ships no HTTP, SDK or native code. You impl
 
 ### Does it depend on Flutter? / 它依赖 Flutter 吗？
 
-No. It is a pure-Dart package; `flutter:` is only a declared constraint because the example app uses Flutter. The runtime has no Flutter dependency.
+No. It is a pure-Dart package: `pubspec.yaml` declares **only** a Dart SDK
+constraint (`^3.4.0`), and the runtime depends on `meta` alone. Declaring
+`flutter:` would mis-tag the package as "Flutter" on pub.dev and force
+pure-Dart (CLI/server) consumers to install the Flutter SDK for no reason — a
+Dart package is usable from Flutter projects automatically.
 
-不。它是纯 Dart 包；仅因示例 App 用到 Flutter 才声明 `flutter:` 约束，运行时不依赖 Flutter。
+不。它是纯 Dart 包：`pubspec.yaml` **只**声明 Dart SDK 约束（`^3.4.0`），
+运行时只依赖 `meta`。声明 `flutter:` 会让包在 pub.dev 上被误标为 "Flutter"，
+并迫使纯 Dart（CLI/服务端）消费者无缘无故安装 Flutter SDK —— 而 Dart 包
+本就自动可用于 Flutter 项目。
 
 ### Where are tokens stored? / 令牌存在哪里？
 

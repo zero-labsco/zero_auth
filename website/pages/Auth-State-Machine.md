@@ -32,8 +32,9 @@ Two helpers save you from spelling out every case:
 - `state.isAuthenticated` — `true` for `Authenticated` **and** `Refreshing`, so a
   renewal never unmounts your signed-in UI. / 在 `Authenticated` 与 `Refreshing`
   下均为 `true`，续期不会卸载已登录界面。
-- `state.isBusy` — `true` while `Authenticating`, `Refreshing` or `LoggingOut`. /
-  在 `Authenticating`、`Refreshing`、`LoggingOut` 期间为 `true`。
+- `state.isBusy` — `true` while `Authenticating`, `Restoring`, `Refreshing` or
+  `LoggingOut`. / 在 `Authenticating`、`Restoring`、`Refreshing`、`LoggingOut`
+  期间为 `true`。
 - `state.session` — the session the state carries (`Authenticated` / `Refreshing` /
   `LoggingOut`), or `null`; no pattern-matching needed for the common case. /
   该状态携带的会话（`Authenticated` / `Refreshing` / `LoggingOut`）或 `null`，
@@ -75,9 +76,14 @@ auth.state.listen((state) {
                                                     └──policy: keep session─► Authenticated (old session)
 
    Authenticated ──logout──► LoggingOut ──► Unauthenticated
-   Unauthenticated ──restore() finds nothing / nothing persisted──► Unauthenticated
+   Unauthenticated ──restore()──► Restoring ──► Authenticated (session found, or renewed)
+                                          └──────► Unauthenticated (nothing persisted / terminal failure)
 ```
 
+- `restore()` emits `Restoring` up front, so a cold start can render
+  "restoring…" instead of flashing the signed-out screen before the session
+  arrives. / `restore()` 会先发出 `Restoring`，让冷启动能渲染「恢复中…」，
+  而不是在会话到达前闪一下未登录界面。
 - `restore()` restores a live session → `Authenticated`.
 - `restore()` restores an **expired** session → attempts `Refreshing`; if the
   renewal fails *transiently* (network, 5xx) the persisted session is **kept** and
