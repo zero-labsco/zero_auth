@@ -1,5 +1,75 @@
 # Changelog
 
+## 2.1.0
+
+**Additive release / 增量版本.** New non-throwing variants, two `updateSession`
+hardening fixes and a consistency fix in frozen `claims`; no migration needed.
+**增量版本。** 新增非抛错变体、两处 `updateSession` 加固修复，以及冻结 `claims`
+的一致性修复；无需迁移。
+
+### Added / 新增
+
+- **`tryLogin()`, `tryRefresh()` and `tryRestore()`** — the same operations
+  without the rethrow: the outcome arrives as a `Result<T>` (`Ok` on success,
+  `Err` carrying the mapped `AppException` on failure). The throwing variants
+  are untouched — pick whichever fits your error style; both share one code
+  path. `Result` was already exported but had no producer in the package; these
+  three make it a first-class citizen.
+  - **`tryLogin()`、`tryRefresh()` 与 `tryRestore()`** —— 同样的操作，无需
+    rethrow：结果以 `Result<T>` 返回（成功为 `Ok`，失败为 `Err`，携带映射后的
+    `AppException`）。抛异常的原方法保持不变 —— 按你的错误风格任选其一；两者
+    共用同一条代码路径。`Result` 此前虽已导出却没有任何产生者；这三个方法让它
+    成为一等公民。
+
+### Fixed / 修复
+
+- **`updateSession()` no longer leaks a raw exception.** Its `update` callback
+  is your code — often a network round trip for fresh profile data — and used to
+  throw straight through the public surface, with no `AuthError` emitted.
+  Failures are now mapped through `mapAuthFailure` and reported on the state
+  stream before the rethrow, exactly like `login()`. The session itself is
+  untouched by such a failure, so the manager lands back on it: a failed update
+  never signs the user out.
+  - **`updateSession()` 不再泄漏裸异常。** 其 `update` 回调是你的代码 —— 常用于
+    联网拉取最新资料 —— 过去会直接穿透公共面抛出，且不发出 `AuthError`。现在失败
+    会经 `mapAuthFailure` 映射，并在重新抛出前上报到状态流，与 `login()` 完全一致。
+    这类失败不触及会话本身，因此管理器会落回原会话：更新失败绝不会把用户登出。
+- **A renewal that lands during an async `updateSession()` can no longer be
+  clobbered.** A refresh completing while the update was suspended used to be
+  overwritten by the update's session — derived from the pre-renewal one — so
+  the device was left holding a refresh token the backend had already rotated
+  away, which a rotation-aware backend answers by revoking the whole family.
+  The update now aborts with `NoActiveSessionException` instead.
+  - **异步 `updateSession()` 执行期间落地的续期不再被覆盖。** 更新挂起期间完成的
+    刷新，过去会被更新派生自续期前会话的新会话覆盖 —— 于是设备留下一个后端早已
+    轮换退役的刷新令牌，支持轮换的后端会据此吊销整个 family。现在更新会以
+    `NoActiveSessionException` 中止。
+- **Frozen nested `claims` compare by content.** The top-level claims map has
+  always compared structurally, but a nested map or list used to fall back to
+  identity, so `session.claims!['address'] == {'city': 'x'}` silently returned
+  `false`. Freezing no longer changes how any level compares against a plain
+  literal.
+  - **冻结的嵌套 `claims` 现在按内容比较。** 顶层 claims 映射一向按结构比较，但嵌套的
+    Map / List 过去回落到身份比较，于是 `session.claims!['address'] ==
+    {'city': 'x'}` 会静默返回 `false`。现在冻结不再改变任意层级与普通字面量的比较结果。
+
+### Changed / 变更
+
+- **The proactive-refresh schedule uses the effective skew.** `_scheduleAutoRefresh`
+  subtracted the full `clockSkew`; it now uses the `clockSkewFraction`-capped
+  value, matching what `validAccessToken()` applies — a backend handing out very
+  short-lived tokens is no longer scheduled to renew several times per token
+  lifetime.
+  - **主动刷新排程改用有效容差。** `_scheduleAutoRefresh` 过去减去完整的
+    `clockSkew`；现在使用经 `clockSkewFraction` 钳制后的值，与
+    `validAccessToken()` 一致 —— 签发极短寿命令牌的后端不会在每个令牌寿命内被
+    排程多次续期。
+- **A successful renewal resets the proactive retry counter**, including a
+  caller-driven `refresh()`: the backoff restarts from the base delay once the
+  session is healthy again, instead of escalating from an earlier failure.
+  - **成功的续期会重置主动重试计数**，调用方驱动的 `refresh()` 也算：会话恢复
+    健康后退避从基础延迟重新开始，而不是沿袭早前失败的升级。
+
 ## 2.0.0
 
 **Breaking release / 破坏性版本.** Two changes need attention when upgrading from

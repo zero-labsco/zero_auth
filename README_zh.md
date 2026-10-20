@@ -12,7 +12,7 @@
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 推荐升级：** `2.0.0` 是**破坏性**版本，有两处迁移：`AuthSession` 不再能用 `const` 构造且其 `claims` 现在不可变（会被拷贝并冻结）；`AuthState` 新增了 `Restoring` 子类 —— 穷举 `switch` 需要补上新分支。它还补上了一个「登出漏洞」（`logout()` 仍在请求后端期间启动的续期，过去会在登出后让会话复活），让无意义的 `clockSkewFraction` 不再抛出裸错误，并新增 `Restoring` 以便冷启动显示「恢复中…」。请使用 `zero_auth: ^2.0.0`（Git 方式用 `ref: release/v2.0.0`）。
+> **🔔 推荐升级：** `2.1.0` 是增量版本 —— 无需迁移。它加固了 `updateSession()` 的两处失败模式（更新回调抛出的裸异常过去会逃出公共面；更新期间落地的续期过去会用续期前派生的会话覆盖已轮换的令牌），新增 `tryLogin()` / `tryRefresh()` / `tryRestore()` 以支持 `Result` 式错误处理，让冻结的嵌套 `claims` 按内容比较，并让主动刷新排程与钳制后的时钟容差保持一致。请使用 `zero_auth: ^2.1.0`（Git 方式用 `ref: release/v2.1.0`）。
 
 🌐 **[官方网站](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[在 pub.dev 查看](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[查看 GitHub 仓库](https://github.com/zero-labsco/zero_auth)**
 
@@ -64,7 +64,7 @@
 
 ```yaml
 dependencies:
-  zero_auth: ^2.0.0
+  zero_auth: ^2.1.0
 ```
 
 ### Git
@@ -74,7 +74,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v2.0.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
+      ref: release/v2.1.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
 ```
 
 ## 使用方法

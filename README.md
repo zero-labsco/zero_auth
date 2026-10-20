@@ -12,7 +12,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 Upgrade recommended:** `2.0.0` is a **breaking** release with two migration steps: `AuthSession` is no longer `const`-constructible and its `claims` are now immutable (copied and frozen), and `AuthState` gained a `Restoring` subtype — so exhaustive `switch` statements need a new case. It also closes a sign-out hole (a renewal started while `logout()` was still talking to the backend used to resurrect the session afterwards), stops a nonsensical `clockSkewFraction` from throwing a raw error, and adds `Restoring` so a cold start can show "restoring…". Pin `zero_auth: ^2.0.0` (or git `ref: release/v2.0.0`).
+> **🔔 Upgrade recommended:** `2.1.0` is additive — no migration. It hardens `updateSession()` against two failure modes (a raw exception from your update callback used to escape the public surface, and a renewal landing mid-update used to overwrite the rotated tokens with a session derived from the pre-renewal one), adds `tryLogin()` / `tryRefresh()` / `tryRestore()` for `Result`-style error handling, makes frozen nested `claims` compare by content, and aligns proactive-refresh scheduling with the capped clock skew. Pin `zero_auth: ^2.1.0` (or git `ref: release/v2.1.0`).
 
 🌐 **[Official Website](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[View on pub.dev](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[View on GitHub](https://github.com/zero-labsco/zero_auth)**
 
@@ -64,7 +64,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 
 ```yaml
 dependencies:
-  zero_auth: ^2.0.0
+  zero_auth: ^2.1.0
 ```
 
 ### Git
@@ -74,7 +74,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v2.0.0   # pin the release/vX.Y.Z branch (immutable per release)
+      ref: release/v2.1.0   # pin the release/vX.Y.Z branch (immutable per release)
 ```
 
 ## Usage
