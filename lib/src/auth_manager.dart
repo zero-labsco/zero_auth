@@ -5,6 +5,7 @@ import 'auth_state.dart';
 import 'auth_strategy.dart';
 import 'auth_token_source.dart';
 import 'error/app_exception.dart';
+import 'error/result.dart';
 import 'exceptions.dart';
 import 'token_store.dart';
 
@@ -606,6 +607,22 @@ final class AuthManager implements AuthTokenSource {
   /// 反映到界面时。
   ///
   /// 未登录时抛出 [NoActiveSessionException]。
+  ///
+  /// [update] is your code — often a network round trip for fresh profile
+  /// data — so its failures are mapped through [mapAuthFailure] and emitted as
+  /// [AuthError] before the rethrow, exactly like [login]. The session itself is
+  /// untouched by such a failure, so the manager lands back on it: a failed
+  /// update never signs the user out.
+  /// [update] 是你的代码 —— 常常是一次联网拉取最新资料的往返 —— 因此它的失败会经
+  /// [mapAuthFailure] 映射，并在重新抛出前以 [AuthError] 发出，与 [login] 完全一致。
+  /// 这类失败不会触及会话本身，因此管理器会落回原会话：更新失败绝不会把用户登出。
+  ///
+  /// A renewal that lands while [update] runs aborts the call: installing a
+  /// session derived from the pre-renewal one would overwrite the rotated
+  /// tokens and leave the device holding a refresh token the backend has
+  /// already retired.
+  /// [update] 执行期间落地的续期会中止本次调用：安装由续期前会话派生的新会话，会覆盖
+  /// 已轮换的令牌，让设备持有一个后端早已退役的刷新令牌。
   Future<Authenticated> updateSession(
     FutureOr<AuthSession> Function(AuthSession current) update,
   ) async {
@@ -618,12 +635,45 @@ final class AuthManager implements AuthTokenSource {
     }
 
     // `update` may be async (a round trip to fetch fresh profile data), so the
-    // session is re-checked on both sides of it.
-    // `update` 可以是异步的（例如先请求最新资料），因此前后都要重新校验。
+    // session is re-checked on the other side of it.
+    // `update` 可以是异步的（例如先请求最新资料），因此在它之后重新校验。
     final startEpoch = _epoch;
+
+    final AuthSession updated;
+    try {
+      updated = await update(current);
+    } catch (e) {
+      // The callback is caller code, so its failures must leave through the
+      // same AppException doorway as everything else — a raw exception must
+      // never cross the public surface — and be reported on the stream first.
+      // 回调是调用方代码，因此它的失败必须和其它失败一样从 AppException 这道门出去
+      // （裸异常绝不能跨越公共面），并先上报到状态流。
+      final failure = mapAuthFailure(e);
+      if (_isCurrent(startEpoch)) {
+        _emit(AuthError(failure));
+        // The session itself is untouched and still valid, so the manager
+        // returns to it — a failed update must not sign the user out, exactly
+        // like a transient renewal failure. The emission is plain: nothing is
+        // re-persisted and no renewal is re-scheduled.
+        // 会话本身未被触及且依然有效，因此管理器回到它上面 —— 更新失败绝不能把用户
+        // 登出，与瞬时续期失败完全一致。这里是普通发射：不重新持久化，也不重排续期。
+        _emit(Authenticated(current));
+      }
+      throw failure;
+    }
+
     _ensureCurrent(startEpoch);
-    final updated = await update(current);
-    _ensureCurrent(startEpoch);
+    // A renewal that landed while `update` was running has already installed a
+    // fresher session. Writing the one derived from `current` over it would
+    // retire the rotated refresh token on the device: the backend answers the
+    // next renewal as a replay and revokes the whole family.
+    // `update` 执行期间落地的续期已装上更新的会话。用由 `current` 派生的会话覆盖它，
+    // 会让设备持有已轮换退役的刷新令牌：后端会把下一次续期判为重放并吊销整个 family。
+    if (currentSession != current) {
+      throw NoActiveSessionException(
+        message: 'Operation aborted: session invalidated meanwhile',
+      );
+    }
 
     // A refresh started before the update would overwrite it with a token from
     // the previous session, so it is invalidated here.
@@ -652,10 +702,71 @@ final class AuthManager implements AuthTokenSource {
       );
     }
 
+    // A caller-built session is as good a moment as a fresh login to re-observe
+    // the token lifetime, so a backend that shortened its TTL is picked up here
+    // too instead of staying capped by an older observation.
+    // 调用方构造的会话与全新登录一样，是重新观测令牌寿命的好时机 —— 这样后端缩短 TTL
+    // 也会在这里被识别，而不是一直被旧观测值钳制。
+    _resetLifetimeObservation();
     final next = Authenticated(updated);
     _activate(updated);
     return next;
   }
+
+  /// Runs [action] and wraps its outcome in a [Result]: [Ok] with the value on
+  /// success, [Err] with the mapped [AppException] on failure. Shared by the
+  /// non-throwing variants below.
+  /// 运行 [action] 并把结果包进 [Result]：成功为 [Ok]，失败为 [Err]
+  /// （携带映射后的 [AppException]）。下面的非抛错变体共用此实现。
+  Future<Result<T>> _outcome<T>(Future<T> Function() action) async {
+    try {
+      return Ok(await action());
+    } catch (e) {
+      // Every public path already fails with an AppException; anything else is
+      // mapped here, so an Err never carries a raw error by surprise.
+      // 所有公共路径本就以 AppException 失败；其余错误在此映射，
+      // 以免 Err 出其不意地携带裸错误。
+      return Err(e is AppException ? e : mapAuthFailure(e));
+    }
+  }
+
+  /// [login] without the rethrow: the outcome arrives as a [Result].
+  ///
+  /// [Ok] carries the [Authenticated] state that was installed — the same value
+  /// the throwing variant returns — while [Err] carries the mapped
+  /// [AppException] that was also emitted as [AuthError]. Pick whichever style
+  /// fits your error handling; both share one code path.
+  /// 不会重新抛出的 [login]：结果以 [Result] 返回。
+  ///
+  /// [Ok] 携带被安装的 [Authenticated] 状态（与抛异常变体的返回值相同）；
+  /// [Err] 携带映射后的 [AppException]（它同时也以 [AuthError] 发出）。
+  /// 按你的错误处理风格任选其一 —— 两者共用同一条代码路径。
+  Future<Result<Authenticated>> tryLogin(Credentials credentials) =>
+      _outcome(() => login(credentials));
+
+  /// [refresh] without the rethrow: the outcome arrives as a [Result].
+  ///
+  /// The synchronous pre-conditions ([NoActiveSessionException],
+  /// [RefreshTokenMissingException], the `manager_disposed` guard) are captured
+  /// too, so a forgotten `await` can never surface as an unhandled async error.
+  /// 不会重新抛出的 [refresh]：结果以 [Result] 返回。
+  ///
+  /// 同步前置条件（[NoActiveSessionException]、[RefreshTokenMissingException]、
+  /// `manager_disposed` 守卫）同样会被捕获，因此忘记 `await` 也不会变成未处理的
+  /// 异步错误。
+  Future<Result<AuthSession>> tryRefresh() => _outcome(() => refresh());
+
+  /// [restore] without the rethrow: the outcome arrives as a [Result].
+  ///
+  /// [Err] carries what a store that cannot be read reports
+  /// ([UnexpectedAuthException]); a session that simply is not there is still
+  /// [Ok] — "not signed in" is an outcome, not an error.
+  /// 不会重新抛出的 [restore]：结果以 [Result] 返回。
+  ///
+  /// [Err] 携带无法读取的存储所上报的失败（[UnexpectedAuthException]）；
+  /// 仅仅「没有会话」则仍是 [Ok] —— 「未登录」是一种结果，而不是错误。
+  Future<Result<void>> tryRestore({bool refreshIfExpired = true}) =>
+      _outcome(() => restore(refreshIfExpired: refreshIfExpired));
 
   /// Whether the strategy implements [T], letting optional capabilities be used
   /// without widening the [AuthStrategy] contract.
@@ -924,6 +1035,11 @@ final class AuthManager implements AuthTokenSource {
       final refreshed = _mergeRefreshed(session, renewed);
       await _persist(refreshed);
       _activate(refreshed);
+      // Any successful renewal — proactive or caller-driven — proves the
+      // session is healthy again, so the backoff starts from scratch.
+      // 任何成功的续期（主动的或调用方驱动的）都证明会话重新健康，
+      // 因此退避计数从零开始。
+      _proactiveFailures = 0;
       completer.complete(refreshed);
     } catch (e) {
       final failure = mapAuthFailure(e);
@@ -954,14 +1070,18 @@ final class AuthManager implements AuthTokenSource {
   /// Proactive refresh runner. Errors are already reflected on the state stream,
   /// so they are swallowed here to avoid leaking an unhandled async error.
   /// 主动刷新的执行入口。错误已体现在状态流上，故在此吞掉，避免泄漏未处理的异步错误。
+  ///
+  /// A transient failure must not silently stop proactive renewal, so it is
+  /// re-armed with a backoff; the success counter reset lives in [_runRefresh],
+  /// which every renewal — including a manual one — goes through.
+  /// 瞬时故障不应让主动续期默默停止，因此按退避重新排程；成功计数归零放在
+  /// [_runRefresh] 里，所有续期（含手动的）都会经过它。
   Future<void> _refreshQuietly() async {
     try {
       await refresh();
-      _proactiveFailures = 0;
     } on AuthException {
-      // Intentionally ignored — see the doc comment above. A transient failure
-      // must not silently stop proactive renewal, so it is re-armed.
-      // 有意忽略——参见上方文档注释。瞬时故障不应让主动续期默默停止，因此重新排程。
+      // Intentionally ignored — see the doc comment above.
+      // 有意忽略——参见上方文档注释。
       _scheduleProactiveRetry();
     }
   }
@@ -1005,6 +1125,13 @@ final class AuthManager implements AuthTokenSource {
   ///
   /// 已经到期的会话会在 [autoRefreshMinInterval] 后续期，而不是立刻续期，以免后端
   /// 持续发放极短寿命的令牌时把续期变成紧密循环。
+  ///
+  /// The lead time is measured against the **effective** skew
+  /// ([_skewFor]), so a backend handing out very short-lived tokens is not
+  /// scheduled to renew several times per token lifetime — the same cap
+  /// [validAccessToken] applies.
+  /// 提前量按**有效**容差（[_skewFor]）计算，因此签发极短寿命令牌的后端不会在每个
+  /// 令牌寿命内被排程多次续期 —— 与 [validAccessToken] 用的是同一个上限。
   void _scheduleAutoRefresh(AuthSession session) {
     _cancelProactiveRefresh();
     final ahead = _autoRefreshAhead;
@@ -1013,7 +1140,8 @@ final class AuthManager implements AuthTokenSource {
         session.refreshToken == null) {
       return;
     }
-    final delay = session.expiresAt!.difference(clock()) - ahead - clockSkew;
+    final delay =
+        session.expiresAt!.difference(clock()) - ahead - _skewFor(session);
     if (delay <= Duration.zero) {
       // Already due, so renew at once — unless a renewal only just ran: then the
       // next one waits its turn instead of spinning.

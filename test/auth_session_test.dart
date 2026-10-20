@@ -41,7 +41,7 @@ void main() {
       expect(future.isExpired, isFalse);
     });
 
-    test('equality ignores claims but compares identity fields', () {
+    test('equality compares the identity fields', () {
       final a = AuthSession(
         accessToken: 'a',
         userId: 'u1',
@@ -214,6 +214,88 @@ void main() {
         isTrue,
       );
       expect(session.claims == {'role': 'admin'}, isFalse);
+    });
+
+    test('nested containers compare by content too', () {
+      // The same rule the top-level map follows, one level down: freezing must
+      // not change how a nested value compares against a plain literal.
+      // 顶层映射遵循的规则向下延伸一层：冻结不能改变嵌套值与普通字面量的比较结果。
+      final session = AuthSession(
+        accessToken: 'a',
+        claims: <String, Object?>{
+          'address': <String, Object?>{'city': 'x'},
+          'roles': <Object?>['admin', 'dev'],
+        },
+      );
+
+      expect(session.claims?['address'], <String, Object?>{'city': 'x'});
+      expect(
+        session.claims?['address'] == <String, Object?>{'city': 'x'},
+        isTrue,
+      );
+      expect(
+        session.claims?['address'] == <String, Object?>{'city': 'y'},
+        isFalse,
+      );
+      expect(session.claims?['roles'], <Object?>['admin', 'dev']);
+      expect(session.claims?['roles'] == <Object?>['admin', 'dev'], isTrue);
+      expect(session.claims?['roles'] == <Object?>['admin'], isFalse);
+
+      // A map is never equal to a list, frozen or not.
+      expect(session.claims?['address'] == <Object?>['admin'], isFalse);
+    });
+
+    test('nested containers cannot be mutated', () {
+      final session = AuthSession(
+        accessToken: 'a',
+        claims: <String, Object?>{
+          'address': <String, Object?>{'city': 'x'},
+          'roles': <Object?>['admin'],
+        },
+      );
+
+      expect(
+        () => (session.claims?['address'] as Map)['city'] = 'y',
+        throwsA(isA<UnsupportedError>()),
+      );
+      expect(
+        () => (session.claims?['roles'] as List).add('ops'),
+        throwsA(isA<UnsupportedError>()),
+      );
+    });
+
+    test('nested containers keep a stable, content-based hash', () {
+      AuthSession build(Object? nested) =>
+          AuthSession(accessToken: 'a', claims: <String, Object?>{'n': nested});
+
+      final mapA = build(<String, Object?>{'k': 'v'});
+      final mapB = build(<String, Object?>{'k': 'v'});
+      expect(mapA.hashCode, mapB.hashCode);
+
+      final listA = build(<Object?>[1, 2]);
+      final listB = build(<Object?>[1, 2]);
+      expect(listA.hashCode, listB.hashCode);
+
+      expect(
+        build(<String, Object?>{'k': 'v'}).hashCode,
+        isNot(build(<String, Object?>{'k': 'w'}).hashCode),
+      );
+    });
+
+    test('nested containers survive serialization', () {
+      final session = AuthSession(
+        accessToken: 'a',
+        claims: <String, Object?>{
+          'address': <String, Object?>{'city': 'x'},
+          'roles': <Object?>['admin'],
+        },
+      );
+
+      final restored = AuthSession.fromJson(session.toJson());
+
+      expect(restored.claims?['address'], <String, Object?>{'city': 'x'});
+      expect(restored.claims?['roles'], <Object?>['admin']);
+      expect(restored, session);
     });
 
     test('the hash stays stable and matches an equal session', () {
