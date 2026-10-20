@@ -20,6 +20,25 @@ class _DemoStrategy implements AuthStrategy {
   static const _validUsername = 'user';
   static const _validPassword = 'user';
 
+  /// The last session this double issued. A refresh keeps whoever is actually
+  /// signed in — including an account created through `register` — instead of
+  /// silently falling back to the seeded account.
+  /// 该替身签发的最后一个会话。刷新会保留当前真正登录的身份 —— 包括通过
+  /// `register` 创建的账号 —— 而不是悄悄回退到内置账号。
+  AuthSession? _lastSession;
+
+  AuthSession _issue(String userId, String displayName) {
+    final session = AuthSession(
+      accessToken: 'demo-access-${DateTime.now().millisecondsSinceEpoch}',
+      refreshToken: const RefreshToken('demo-refresh-token'),
+      expiresAt: DateTime.now().add(const Duration(minutes: 2)),
+      userId: userId,
+      displayName: displayName,
+    );
+    _lastSession = session;
+    return session;
+  }
+
   @override
   Future<AuthSession> login(Credentials credentials) async {
     await Future<void>.delayed(const Duration(milliseconds: 300));
@@ -32,13 +51,8 @@ class _DemoStrategy implements AuthStrategy {
     }
     // Mirrors the real backend: a short-lived access token plus a refresh
     // token, so the renewal paths stay reachable offline too.
-    return AuthSession(
-      accessToken: 'demo-access-${DateTime.now().millisecondsSinceEpoch}',
-      refreshToken: const RefreshToken('demo-refresh-token'),
-      expiresAt: DateTime.now().add(const Duration(minutes: 2)),
-      userId: _validUsername,
-      displayName: '$_validUsername@demo',
-    );
+    // 与真实后端一致：短寿访问令牌加刷新令牌，离线也能走到续期路径。
+    return _issue(_validUsername, '$_validUsername@demo');
   }
 
   @override
@@ -53,22 +67,27 @@ class _DemoStrategy implements AuthStrategy {
     }
     // The double keeps no user database, so any new pair is accepted — that is
     // what makes the registration path reachable without a server.
-    return AuthSession(
-      accessToken: 'demo-access-${DateTime.now().millisecondsSinceEpoch}',
-      refreshToken: const RefreshToken('demo-refresh-token'),
-      expiresAt: DateTime.now().add(const Duration(minutes: 2)),
-      userId: username,
-      displayName: input.displayName ?? '$username@demo',
-    );
+    // 该替身不保存用户库，因此任意新组合都被接受 —— 这正是无服务器也能复现
+    // 注册路径的原因。
+    return _issue(username, input.displayName ?? '$username@demo');
   }
 
   @override
   Future<void> logout(SessionHandle handle) async {}
 
   @override
-  Future<AuthSession> refresh(RefreshToken token) async => login(
-        const Credentials(username: _validUsername, password: _validPassword),
-      );
+  Future<AuthSession> refresh(RefreshToken token) async {
+    await Future<void>.delayed(const Duration(milliseconds: 300));
+    // Mirrors a rotation-aware backend: a fresh access token and a pushed-back
+    // expiry, while the signed-in identity survives the renewal.
+    // 与支持轮换的后端一致：崭新的访问令牌与顺延的过期时间，同时登录身份
+    // 在续期中保持不变。
+    final previous = _lastSession;
+    return _issue(
+      previous?.userId ?? _validUsername,
+      previous?.displayName ?? '$_validUsername@demo',
+    );
+  }
 }
 
 /// Real HTTP backend strategy. Talks to the Dart server in `../../server`.
