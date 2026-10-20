@@ -85,14 +85,19 @@ Return an `AuthSession` carrying at least the access token, the refresh token, a
 
 ```dart
 AuthSession(
-  accessToken: json['access'],
-  refreshToken: json['refresh'],
-  expiresAt: DateTime.parse(json['expiresAt']),
-  userId: json['userId'],
-  displayName: json['displayName'],
-  claims: json, // optional raw claims / 可选的原始 claims
+  accessToken: json['accessToken'] as String,
+  refreshToken: RefreshToken(json['refreshToken'] as String),
+  expiresAt: DateTime.parse(json['expiresAt'] as String),
+  userId: json['userId'] as String?,
+  displayName: json['displayName'] as String?,
+  claims: (json['claims'] as Map?)?.cast<String, Object?>(), // optional raw claims / 可选的原始 claims
 )
 ```
+
+> When the map comes from the network or disk, prefer
+> `AuthSession.tryFromJson(json)` — it returns `null` on malformed data instead
+> of throwing. / 映射来自网络或磁盘时，请优先用 `AuthSession.tryFromJson(json)`
+> —— 畸形数据返回 `null` 而不是抛异常。
 
 ## Example backend / 演示后端
 

@@ -33,6 +33,7 @@ auth.state.listen((state) {
     case Unauthenticated():
       showLoginScreen();
     case Authenticating():
+    case Restoring():
     case LoggingOut():
       showSpinner();
     case Authenticated(:final session):

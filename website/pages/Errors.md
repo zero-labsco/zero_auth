@@ -11,13 +11,13 @@ All domain failures extend `AppException`:
 所有领域失败都继承 `AppException`：
 
 ```dart
-sealed class AppException implements Exception {
-  final String code;       // stable, machine-readable / 稳定、机器可读
+abstract class AppException implements Exception {
+  final String? code;      // stable, machine-readable / 稳定、机器可读
   final String message;    // human-readable / 人类可读
-  final Object? cause;     // original error, if any / 原始错误
+  final Object? cause;     // original error, if any / 原始错误，如有
 }
 
-final class AuthException extends AppException {
+class AuthException extends AppException {
   // Base type for every auth failure / 所有认证失败的基类型
 }
 
@@ -57,6 +57,7 @@ Codes raised by the manager itself (not your strategy) / 由管理器自身产�
 | code | Raised when / 何时触发 |
 |------|------------------------|
 | `auth_flow_in_progress` | Another `login` / `register` / `loginWith` is already running / 已有登录流程在执行 |
+| `session_persist_failed` | The session could not be written to the `TokenStore` (retried once first) / 会话无法写入 `TokenStore`（已先重试一次） |
 | `manager_disposed` | An operation is called after `dispose()` / `dispose()` 后又调用操作 |
 
 > Overlapping authentication flows are rejected rather than racing: a second
@@ -70,26 +71,59 @@ Codes raised by the manager itself (not your strategy) / 由管理器自身产�
 
 ## `Result<T>` / 结果类型
 
-For explicit, exception-free handling, use `Result`:
+For explicit, exception-free handling, use `Result` — a sealed `Ok` / `Err` pair you construct directly:
 
-如需显式、无异常的处理，可使用 `Result`：
+如需显式、无异常的处理，可使用 `Result` —— 直接构造的密封 `Ok` / `Err` 组合：
 
 ```dart
 sealed class Result<T> {
-  const factory Result.ok(T value) = Ok<T>;
-  const factory Result.err(AppException error) = Err<T>;
+  const Result();
+  T get getOrThrow;                    // value, or throws the failure / 取值，或抛出失败
+  Result<R> map<R>(R Function(T value) transform);
+  bool get isOk;
+  bool get isErr;
+}
+
+final class Ok<T> extends Result<T> {
+  const Ok(this.value);
+  final T value;
+}
+
+final class Err<T> extends Result<T> {
+  const Err(this.error);
+  final Object error;                  // usually an AppException / 通常是 AppException
+  AppException? get appException;      // the mapped domain error / 映射后的领域错误
 }
 ```
 
+Three operations return one out of the box — `tryLogin()`, `tryRefresh()` and
+`tryRestore()` are the same code paths as their throwing twins, with the outcome
+delivered as a `Result` instead of an exception:
+
+三个操作开箱即用地返回 `Result` —— `tryLogin()`、`tryRefresh()` 与 `tryRestore()`
+与各自的抛异常版本共用同一条代码路径，只是把结果以 `Result` 交付而非异常：
+
 ```dart
-final result = await auth.tryLogin(user, pass); // returns Result<AuthSession>
+// Ok carries the Authenticated state that was installed.
+// Ok 携带被安装的 Authenticated 状态。
+final result = await auth.tryLogin(credentials);
+
 switch (result) {
   case Ok(:final value):
-    /* authenticated / 已认证 */
+    // value is the Authenticated state; value.session is the AuthSession
+    // value 即 Authenticated 状态；value.session 是 AuthSession
+    print('signed in as ${value.session.userId}');
   case Err(:final error):
-    /* inspect error.code / 读取 error.code */
+    // inspect error.code — the same AppException AuthError carries
+    // 读取 error.code —— 与 AuthError 携带的是同一个 AppException
+    print('failed: $error');
 }
 ```
+
+Both styles share one path: the failure is emitted as `AuthError` **and**
+rethrown by the throwing variant, so mixing them is safe.
+两种风格共用一条路径：失败会以 `AuthError` 发出，**并且**由抛异常版本重新抛出，
+因此混用两者是安全的。
 
 ## How failures surface / 失败如何呈现
 

@@ -33,7 +33,7 @@
 |---|---|
 | 状态机 `Unauthenticated → Authenticating → Authenticated → AuthError` | 不发 HTTP 请求（无内置 client、无 `dart:io`） |
 | 会话模型 `AuthSession`（token / 过期 / 身份） | 不做持久化实现（只定义 `TokenStore` 接口） |
-| 启动恢复 `restore()`、单飞刷新 `refresh()` | 不内置定时/自动刷新（见 [§9](#9-refresh--expiry--刷新与过期)） |
+| 启动恢复 `restore()`、单飞刷新 `refresh()`、可选的主动续期 `autoRefreshAhead` | 不默认自动排程刷新（需显式开启 `autoRefreshAhead`，见 [§9](#9-refresh--expiry--刷新与过期)） |
 | 统一错误（`AppException` / `AuthException`） | 不提供 UI、路由、状态管理框架绑定 |
 | 令牌出口 `AuthTokenSource`（给拦截器用） | 不解析 JWT、不校验签名 |
 
@@ -82,6 +82,8 @@ Future<void> main() async {
       case Unauthenticated():
         print('show login / 显示登录页');
       case Authenticating():
+      case Restoring():
+      case LoggingOut():
         print('show spinner / 显示加载');
       case Authenticated(:final session):
         print('hi ${session.displayName}, token=${session.accessToken}');
@@ -89,8 +91,6 @@ Future<void> main() async {
         // Still signed in: only the token is being renewed.
         // 仍处于登录态：只是令牌在续期。
         print('renewing ${session.displayName} / 续期中');
-      case LoggingOut():
-        print('signing out / 登出中');
       case AuthError(:final error):
         print('failed: ${error.message} (${error.code})');
     }
@@ -142,12 +142,27 @@ Future<void> main() async {
           │              └──────────────────┘          │    only the Future
           │                                            │    completes with an
           └────────────── logout() ◀───────────────────┘    error)
+
+   restore() ──► Restoring ──► Authenticated (session found, or renewed)
+                              └──► Unauthenticated (nothing persisted / terminal failure)
 ```
 
-- `AuthError` is **terminal**: the manager does not auto-return to `Unauthenticated`. Call `logout()` or start a new `login()`.
-  `AuthError` 是**终结态**：不会自动回到 `Unauthenticated`，请调用 `logout()` 或重新 `login()`。
-- `refresh()` failures do **not** emit `AuthError` — only the returned `Future` errors. Decide yourself whether to force a logout.
-  `refresh()` 失败**不会**发 `AuthError`，只让返回的 `Future` 报错；是否强制登出由你决定。
+- `restore()` emits `Restoring` up front, so a cold start renders "restoring…"
+  instead of flashing the signed-out screen before the session arrives.
+  `restore()` 会先发出 `Restoring`，让冷启动渲染「恢复中…」，而不是在会话到达前
+  闪一下未登录界面。
+- A failed `refresh` **does** emit `AuthError` on the stream, and then lands on
+  `Unauthenticated` (unrecoverable per `refreshFailurePolicy`) or back on the
+  previous `Authenticated` (transient). The returned `Future` errors as well.
+  失败的 `refresh` **会**在状态流上发出 `AuthError`，然后按 `refreshFailurePolicy`
+  落到 `Unauthenticated`（不可恢复）或回到上一个 `Authenticated`（瞬时）。
+  返回的 `Future` 同时报错。
+- `AuthError` is not auto-left: a login/register failure stays on it until you
+  call `logout()` or start a new `login()`, while a refresh failure and a
+  `restore()` drop both transition away from it immediately (see the table in
+  §9). / `AuthError` 不会自动停留：登录 / 注册失败会停在它上面，直到你调用
+  `logout()` 或重新 `login()`；而刷新失败与 `restore()` 丢弃都会立刻离开它
+  （见 §9 的表格）。
 
 ### 4.2 The two boundaries / 两个边界
 
@@ -383,7 +398,7 @@ StreamBuilder<AuthState>(
   stream: auth.state,
   builder: (context, snap) => switch (snap.data) {
     Unauthenticated() => const LoginPage(),
-    Authenticating() || LoggingOut() =>
+    Authenticating() || Restoring() || LoggingOut() =>
       const Center(child: CircularProgressIndicator()),
     // Keep the user signed in while the token renews, otherwise a routine
     // refresh would flash the login page (or a blank "_" fallback).
@@ -642,6 +657,27 @@ final r = trySession();
 if (r.isOk) print(r.getOrThrow.userId);   // or r.map((s) => s.userId)
 ```
 
+Three operations produce one for you — `tryLogin()`, `tryRefresh()` and
+`tryRestore()` return the same outcome as their throwing twins, without the
+`try/catch`:
+
+三个操作会替你产出 `Result` —— `tryLogin()`、`tryRefresh()` 与 `tryRestore()`
+与各自的抛异常版本返回相同的结果，只是不需要 `try/catch`：
+
+```dart
+final result = await auth.tryLogin(credentials);
+if (result.isOk) {
+  print(result.getOrThrow.session.userId);   // the Authenticated that was installed
+} else {
+  print(result.appException?.code);          // the mapped failure
+}
+```
+
+Both styles share one code path: the failure is emitted as `AuthError` **and**
+rethrown by the throwing variant, so mixing them is safe.
+两种风格共用一条代码路径：失败会以 `AuthError` 发出，**并且**由抛异常版本重新抛出，
+因此混用两者是安全的。
+
 ---
 
 ## 11. API reference / API 参考
@@ -705,7 +741,10 @@ Readable members / 可读成员：
 | `logout()` | `Future<void>` | Emits `LoggingOut`, best-effort `strategy.logout`, then `clear()`, then `Unauthenticated` |
 | `refresh()` | `Future<AuthSession>` | Emits `Refreshing`; single-flight within an epoch; on failure applies `refreshFailurePolicy`. Refused while the state is `LoggingOut`, so a renewal cannot resurrect a session that is being discarded / 发出 `Refreshing`；同一 epoch 内单飞；失败时按策略处理。状态为 `LoggingOut` 时会被拒绝，避免续期让正在丢弃的会话复活 |
 | `validAccessToken()` | `Future<String?> validAccessToken({Duration? leeway})` | Never returns an expired token; refreshes first when it expires within `leeway` (default `clockSkew`) / 绝不返回过期令牌；会在 `leeway`（默认 `clockSkew`）内过期时先续期 |
-| `updateSession()` | `Future<Authenticated> updateSession(AuthSession Function(AuthSession current))` | Replaces the active session without a re-login (profile update, refreshed claims); throws `NoActiveSessionException` when signed out / 免重新登录替换活动会话 |
+| `updateSession()` | `Future<Authenticated> updateSession(FutureOr<AuthSession> Function(AuthSession current))` | Replaces the active session without a re-login (profile update, refreshed claims); throws `NoActiveSessionException` when signed out. A failed update keeps the session and reports `AuthError` first; a renewal that landed while the update ran aborts it / 免重新登录替换活动会话（资料更新、刷新 claims）；未登录时抛 `NoActiveSessionException`。更新失败会保留会话并先发 `AuthError`；更新期间落地的续期会中止本次调用 |
+| `tryLogin()` | `Future<Result<Authenticated>> tryLogin(Credentials)` | `login()` without the rethrow — `Ok` with the installed state, `Err` with the mapped failure / 不重新抛出的 `login()` —— 成功为 `Ok`（被安装的状态），失败为 `Err`（映射后的失败） |
+| `tryRefresh()` | `Future<Result<AuthSession>> tryRefresh()` | `refresh()` without the rethrow; the synchronous pre-conditions are captured too / 不重新抛出的 `refresh()`；同步前置条件同样被捕获 |
+| `tryRestore()` | `Future<Result<void>> tryRestore({bool refreshIfExpired = true})` | `restore()` without the rethrow — "not signed in" is still an `Ok` / 不重新抛出的 `restore()` —— 「未登录」仍是 `Ok` |
 | `supports<T>()` | `bool supports<T>()` | Whether the strategy implements an optional capability / 策略是否实现了某可选能力 |
 | `dispose()` | `Future<void>` | Closes the stream and cancels proactive refresh. **Later operations throw** `AuthException(code: 'manager_disposed')` / 关闭状态流；之后再操作会抛 `manager_disposed` |
 
@@ -723,7 +762,7 @@ Readable members / 可读成员：
 
 `bool get isAuthenticated` — `true` for `Authenticated` **and** `Refreshing`, so a
 token renewal never unmounts signed-in UI. `bool get isBusy` covers
-`Authenticating`, `Refreshing` and `LoggingOut`. `AuthSession? get session`
+`Authenticating`, `Restoring`, `Refreshing` and `LoggingOut`. `AuthSession? get session`
 returns the session any state carries (`Authenticated` / `Refreshing` /
 `LoggingOut`), or `null` — no pattern-matching needed for the common case.
 
@@ -913,7 +952,8 @@ idempotent.
 | Symptom / 现象 | Cause / 原因 | Fix / 处理 |
 |---|---|---|
 | `AuthException: Unexpected auth failure` | Strategy threw a non-`AppException` (e.g. raw `DioException`) | Map errors in your strategy; throw `AuthException` with a `code` |
-| UI stuck on `AuthError` | It is a terminal state | Call `logout()` or start a new `login()` |
+| UI stuck on `AuthError` | A login/register failure stays on it — it is not left automatically | Call `logout()` or start a new `login()`. A failed `refresh` / `restore()` moves on by itself (see §9) / 登录 / 注册失败会停在它上面 —— 不会自动离开；调用 `logout()` 或重新 `login()`。失败的 `refresh` / `restore()` 会自行离开（见 §9） |
+| `updateSession()` throws `NoActiveSessionException: Operation aborted` | A renewal (or a logout / re-login) landed while the update was running, so the session it started from is stale | Retry the update; it reads the current session again / 更新运行期间有续期（或登出 / 重新登录）落地，它起始时的会话已过时 | 重试更新即可，它会重新读取当前会话 |
 | `login()` throws even though UI shows the error | By design: emit **and** rethrow | Swallow it, or handle once — not both |
 | `refresh()` throws immediately | No session, or `refreshToken == null` | Check `currentSession?.refreshToken`; re-login |
 | `refresh()` throws `NoActiveSessionException: Refresh aborted` | The refresh started before a newer login / `updateSession` replaced the session; it is aborted on purpose / 刷新在会话被替换之前启动，被有意中止 | Catch `AuthException` in interceptors and retry, or simply read `validAccessToken()` / 在拦截器里捕获 `AuthException` 重试，或直接读 `validAccessToken()` |
