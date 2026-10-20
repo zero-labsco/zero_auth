@@ -30,7 +30,5 @@ migrate_working_dir/
 **/build/
 /coverage/
 
-# Nextra documentation site build artifacts (the built site is synced to docs/)
-website/node_modules/
-website/.next/
-website/out/
+# Nextra documentation site build artifacts — see website/.gitignore.
+# The built site is published to the `gh-pages` branch by CI, never committed.

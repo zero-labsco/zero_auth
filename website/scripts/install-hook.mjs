@@ -7,7 +7,10 @@
  *
  * It copies website/scripts/pre-commit (the tracked template) to
  * .git/hooks/pre-commit and makes it executable, so that committing
- * automatically builds & syncs the documentation site.
+ * automatically refreshes the local website/out/ build.
+ *
+ * The hook is a convenience for local previews only — the live site is built
+ * and published to the `gh-pages` branch by CI (.github/workflows/docs.yml).
  *
  * Safe to run repeatedly: if the installed hook already matches the template it
  * is a no-op. If a different pre-commit hook already exists, it is backed up
@@ -77,4 +80,4 @@ try {
 } catch {}
 
 console.log('[install-hook] Pre-commit hook installed at', target);
-console.log('[install-hook] It will build & sync the docs site on relevant commits.');
+console.log('[install-hook] It will rebuild website/out/ locally on relevant commits.');

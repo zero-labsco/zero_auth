@@ -8,9 +8,12 @@
 # On commit, it runs sync-docs.mjs which:
 #   - detects whether website/ source or pubspec.yaml version changed
 #   - injects the package version (from pubspec.yaml) into website/pages/*.md
-#   - builds the Nextra site (website/out/)
-#   - syncs website/out/ -> docs/ and stages it
+#   - builds the Nextra site into website/out/ (plus .nojekyll)
+#   - restores website/pages/*.md so the placeholder stays in the repo
 # If nothing changed, it exits 0 immediately (no build).
+#
+# This is a local preview only: it never stages anything. The live site is
+# built and published to the gh-pages branch by CI (.github/workflows/docs.yml).
 
 root="$(git rev-parse --show-toplevel)"
 node "$root/website/scripts/sync-docs.mjs"

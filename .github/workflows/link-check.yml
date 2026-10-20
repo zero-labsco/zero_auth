@@ -16,7 +16,7 @@ on:
       - 'README_zh.md'
       - 'USAGE.md'
       - 'CHANGELOG.md'
-      - 'docs/**'
+      - 'website/pages/**'
   # Allow manual runs from the Actions tab.
   # 允许在 Actions 页手动触发。
   workflow_dispatch:
@@ -44,7 +44,7 @@ jobs:
             --timeout 20
             --retry-wait-time 2
             --max-retries 2
-            README.md README_zh.md USAGE.md CHANGELOG.md "docs/**"
+            README.md README_zh.md USAGE.md CHANGELOG.md "website/pages/**"
           fail: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -42,22 +42,31 @@ cd ..\server && dart analyze
 
 ## Docs site / 文档站
 
-The Pages site is served from the **pre-built** `docs/` folder; it is regenerated
-from `website/out/` by a git pre-commit hook. The hook must be installed once per
-clone, otherwise edits under `website/` never reach GitHub Pages.
+The docs site is built by **CI**, not committed to `main`. Pushes to `main`
+touching `website/**` or `pubspec.yaml` trigger `docs.yml`, which builds
+`website/out/` and publishes it to the `gh-pages` branch. GitHub Pages serves
+that branch (one-time repo setting: Settings → Pages → Source "Deploy from a
+branch", branch `gh-pages`, folder `/ (root)`).
 
-文档站由**预先构建**的 `docs/` 目录提供，它由 git pre-commit hook 从 `website/out/`
-重新生成。每个克隆必须安装一次该 hook，否则你在 `website/` 下的改动永远不会上线。
+文档站由 **CI** 构建，不会提交到 `main`。推送到 `main` 且改动 `website/**` 或
+`pubspec.yaml` 时会触发 `docs.yml`：它构建 `website/out/` 并发布到 `gh-pages` 分支。
+GitHub Pages 提供该分支（一次性仓库设置：Settings → Pages → Source "Deploy from a
+branch"，branch `gh-pages`，folder `/ (root)`）。
+
+Only `website/pages/*.md` is hand-edited — never build or commit a `docs/`
+directory.
+
+只有 `website/pages/*.md` 需要手工编辑——不要构建或提交 `docs/` 目录。
 
 ```powershell
-npm --prefix website run setup-hook
+# Optional: local preview (writes website/out/, which is git-ignored).
+# 可选：本地预览（生成 website/out/，已被 git 忽略）。
+cd website && npm ci && npm run build
+
+# Same build, with the pubspec version injected into the pages.
+# 同样的构建，并把 pubspec 版本注入页面。
+node website/scripts/sync-docs.mjs --ci
 ```
-
-If you changed `website/**` but `git status` shows no `docs/` changes, the hook is
-missing — reinstall it and run `node website/scripts/sync-docs.mjs --force` once.
-
-若你改了 `website/**` 而 `git status` 中没有 `docs/` 变化，说明 hook 未安装——重装它，
-再手动执行一次 `node website/scripts/sync-docs.mjs --force`。
 
 ## Branching & pull requests
 
