@@ -10,7 +10,7 @@ dependencies:
     sdk: flutter
   zero_auth:
     path: ../
-  flutter_secure_storage: ^9.0.0
+  flutter_secure_storage: ^11.2.0
   dio: ^5.4.0
 
 dev_dependencies:
