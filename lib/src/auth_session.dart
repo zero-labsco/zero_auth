@@ -1,5 +1,7 @@
 import 'dart:collection';
 
+import 'exceptions.dart';
+
 /// A refresh-token value object.
 /// 刷新令牌值对象。
 final class RefreshToken {
@@ -180,18 +182,27 @@ final class AuthSession {
 
   /// Deserialize from a map produced by [toJson].
   /// 从 [toJson] 生成的映射反序列化。
-  factory AuthSession.fromJson(Map<String, Object?> json) => AuthSession(
-        accessToken: json['accessToken'] as String,
-        refreshToken: json['refreshToken'] == null
-            ? null
-            : RefreshToken(json['refreshToken'] as String),
-        expiresAt: json['expiresAt'] == null
-            ? null
-            : DateTime.parse(json['expiresAt'] as String),
-        userId: json['userId'] as String?,
-        displayName: json['displayName'] as String?,
-        claims: (json['claims'] as Map?)?.cast<String, Object?>(),
+  /// Deserialize from a map produced by [toJson].
+  ///
+  /// Throws [UnexpectedAuthException] (an [AppException]) when the map does not
+  /// describe a valid session, so callers never receive a raw [TypeError] /
+  /// [FormatException] across the public surface — unlike [tryFromJson], which
+  /// returns `null` instead.
+  /// 从 [toJson] 生成的映射反序列化。
+  ///
+  /// 当映射无法描述合法会话时抛出 [UnexpectedAuthException]（一种 [AppException]），
+  /// 调用方因此永远不会在本包公开面之外收到裸 [TypeError] / [FormatException] ——
+  /// 这与返回 `null` 的 [tryFromJson] 不同。
+  factory AuthSession.fromJson(Map<String, Object?> json) {
+    final session = tryFromJson(json);
+    if (session == null) {
+      throw UnexpectedAuthException(
+        message:
+            'AuthSession.fromJson: the map does not describe a valid session',
       );
+    }
+    return session;
+  }
 
   /// Deserialize from a map produced by [toJson], or return `null` when the map
   /// does not describe a valid session.

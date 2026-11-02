@@ -1,5 +1,47 @@
 # Changelog
 
+## 2.1.1
+
+**Patch release / 补丁版本.** Session-installation race fixes and a safer public
+deserializer; no migration needed.
+**补丁版本。** 修复会话安装竞态，并让公开反序列化更安全；无需迁移。
+
+### Fixed / 修复
+
+- **Login / register / refresh no longer resurrect a session the user already
+  ended.** `login`, `register`, `loginWith` and the internal refresh path now
+  re-check the epoch guard *after* persisting (not only before), and abort —
+  clearing the just-written tokens — when a concurrent `logout`/`dispose` landed
+  in the interim. Previously a logout could interleave inside the async `persist`,
+  letting a stale login overwrite the sign-out and, on a token-rotation backend,
+  write a retired refresh token back to the store.
+  - **登录 / 注册 / 刷新不再复活用户已结束的会话。** `login`、`register`、
+    `loginWith` 以及内部刷新路径现在会在「持久化之后」再次复核 epoch 守卫（此前只在
+    之前），若期间插入了并发的 `logout`/`dispose`，则中止并清掉刚写入的令牌。过去登出
+    可能在异步 `persist` 期间交错，使失效的登录覆盖登出，并在支持令牌轮换的后端上把
+    已退役的刷新令牌写回存储。
+- **`restore` no longer signs the user out over a freshly landed login.**
+  `_dropSession` now re-checks the epoch after clearing the store and stays silent
+  when a concurrent login/restore has since installed a session, so it cannot
+  overwrite a live `Authenticated` state with `Unauthenticated`.
+  - **`restore` 不再把刚落地的新登录覆盖成登出。** `_dropSession` 现在在清存储之后
+    再次复核 epoch；若期间已有并发的登录/恢复装好了会话，它会保持静默，从而不会用
+    `Unauthenticated` 覆盖活动的 `Authenticated` 状态。
+- **`AuthSession.fromJson` no longer throws raw `TypeError` / `FormatException`.**
+  It now delegates to `tryFromJson` and raises `UnexpectedAuthException` (an
+  `AppException`) on malformed input, keeping raw errors off the public surface.
+  `tryFromJson` remains the recommended entry point for untrusted data.
+  - **`AuthSession.fromJson` 不再抛出裸 `TypeError` / `FormatException`。** 现在委托
+    `tryFromJson`，对非法输入抛出 `UnexpectedAuthException`（一种 `AppException`），
+    确保裸异常不越过公共面。`tryFromJson` 仍是非可信数据的推荐入口。
+- **A new session starts its proactive-refresh bookkeeping from a clean slate.**
+  `_proactiveFailures` and `_lastProactiveRefreshAt` are reset when a fresh session
+  is installed (login / register / restore), so counters and throttling timestamps
+  from a previous session no longer bleed into the next one.
+  - **新会话从干净的主动续期记账开始。** `_proactiveFailures` 与
+    `_lastProactiveRefreshAt` 在全新会话安装时（登录 / 注册 / 恢复）重置，旧会话的计数
+    与节流时间戳不再渗入新会话。
+
 ## 2.1.0
 
 **Additive release / 增量版本.** New non-throwing variants, two `updateSession`

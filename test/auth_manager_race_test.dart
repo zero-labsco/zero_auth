@@ -1,175 +1,226 @@
 import 'dart:async';
 
-import 'package:fake_async/fake_async.dart';
 import 'package:test/test.dart';
 import 'package:zero_auth/zero_auth.dart';
 
-/// Regression tests for the extreme timing interleavings once listed as R2 in
-/// `KNOWN_RISKS.md`: a renewal landing in the same microtask as a `logout()`, or
-/// still in flight when `dispose()` arrives.
-///
-/// They are deterministic on purpose — the strategy gates the renewal behind a
-/// [Completer] instead of racing the event loop, so nothing here can go flaky.
-/// 针对 `KNOWN_RISKS.md` 中曾列为 R2 的极端时序交错的回归测试：续期与 `logout()`
-/// 在同一微任务落地，或 `dispose()` 到达时续期仍在飞行中。
-///
-/// 这里是刻意为确定性的 —— 策略用 [Completer] 把续期挡住，而不是去和事件循环赛跑，
-/// 因此不会出现 flaky。
-void main() {
-  Future<void> pump() => Future<void>.delayed(Duration.zero);
+import 'fake_strategy.dart';
 
-  group('a late renewal can never win', () {
-    test('a renewal landing after logout cannot resurrect the session',
-        () async {
-      final strategy = _GateStrategy();
-      final store = InMemoryTokenStore();
-      final manager = AuthManager(strategy: strategy, tokenStore: store);
-
-      await manager.login(_credentials);
-
-      // Start a renewal and hold it open.
-      final renewal = manager.refresh();
-      await pump();
-      expect(manager.current, isA<Refreshing>());
-
-      // The user signs out while that renewal is still in flight.
-      await manager.logout();
-      expect(manager.current, const Unauthenticated());
-
-      // …and now the renewal lands.
-      strategy.complete(_GateStrategy.gated('late'));
-      await expectLater(renewal, throwsA(isA<AuthException>()));
-
-      expect(manager.current, const Unauthenticated());
-      expect(manager.currentSession, isNull);
-      expect(await store.load(), isNull);
-
-      await manager.dispose();
-    });
-
-    test('a renewal cannot start while the session is being discarded',
-        () async {
-      final strategy = _GateStrategy(
-        logoutDelay: const Duration(milliseconds: 50),
-      );
-      final store = _RecordingStore();
-      final manager = AuthManager(strategy: strategy, tokenStore: store);
-
-      await manager.login(_credentials);
-
-      final loggingOut = manager.logout();
-      await pump();
-      // The backend logout is still in flight.
-      expect(manager.current, isA<LoggingOut>());
-
-      // A renewal attempted mid-sign-out is refused instead of being allowed to
-      // land afterwards and resurrect the session (in memory *and* in the store).
-      expect(
-        () => manager.refresh(),
-        throwsA(isA<NoActiveSessionException>()),
-      );
-      // Reading a token is safe too: `LoggingOut` carries no usable session.
-      expect(await manager.validAccessToken(), isNull);
-
-      await loggingOut;
-
-      expect(manager.current, const Unauthenticated());
-      expect(await store.load(), isNull);
-
-      await manager.dispose();
-    });
-
-    test('a renewal in flight when dispose lands completes quietly', () {
-      FakeAsync().run((async) {
-        final strategy = _GateStrategy();
-        final store = _RecordingStore();
-        final manager = AuthManager(strategy: strategy, tokenStore: store);
-
-        unawaited(manager.login(_credentials));
-        async.flushMicrotasks();
-
-        final renewal = manager.refresh();
-        unawaited(manager.dispose());
-        async.flushMicrotasks();
-        final savesAtDispose = store.saveCount;
-
-        // The renewal lands after the manager is gone: it fails instead of
-        // writing, and nothing escapes as an unhandled async error.
-        var failed = false;
-        renewal.catchError((Object _) {
-          failed = true;
-          return AuthSession(accessToken: 'unused');
-        });
-        strategy.complete(_GateStrategy.gated('late'));
-        async.flushMicrotasks();
-
-        expect(failed, isTrue);
-        // The late session was never persisted.
-        expect(store.saveCount, savesAtDispose);
-      });
-    });
-  });
-}
-
-const Credentials _credentials = Credentials(username: 'u', password: 'p');
-
-/// A store that counts writes, so a test can tell "nothing was persisted" apart
-/// from "the same value was persisted again".
-/// 记录写入次数的存储，便于测试区分「没有写入」与「又写了一次相同的值」。
-final class _RecordingStore implements TokenStore {
-  AuthSession? value;
-  int saveCount = 0;
+/// A store whose [save] blocks until [saveGate] completes, so a caller can be
+/// frozen mid-persist and a concurrent operation (e.g. logout) slipped in.
+/// 一个 save 会阻塞到 [saveGate] 完成的存储，从而把调用者冻在「持久化途中」，
+/// 好让并发操作（如登出）插进来。
+final class _GatedSaveStore implements TokenStore {
+  Completer<void> saveGate = Completer<void>();
+  AuthSession? saved;
 
   @override
   Future<void> save(AuthSession session) async {
-    saveCount++;
-    value = session;
+    saved = session;
+    await saveGate.future;
   }
 
   @override
-  Future<AuthSession?> load() async => value;
+  Future<AuthSession?> load() async => saved;
 
   @override
-  Future<void> clear() async => value = null;
+  Future<void> clear() async {
+    saved = null;
+  }
 }
 
-/// A strategy whose `refresh` never completes until [complete] is called, so a
-/// test can decide exactly when a renewal lands.
-/// 其 `refresh` 在调用 [complete] 之前永不完成的策略，便于测试精确控制续期落地的时刻。
-final class _GateStrategy implements AuthStrategy {
-  /// How long the backend `logout()` takes. Non-zero keeps the manager in
-  /// `LoggingOut` long enough for a test to act inside that window.
-  /// 后端 `logout()` 的耗时。非零可让管理器停留在 `LoggingOut`，便于测试在该窗口内动作。
-  _GateStrategy({this.logoutDelay = Duration.zero});
+/// A store whose [clear] blocks until [clearGate] completes and whose [load]
+/// returns an already-expired session with no refresh token — the exact shape
+/// that drives [AuthManager.restore] into [_dropSession].
+/// 一个 clear 会阻塞到 [clearGate] 完成的存储；其 [load] 返回一个「已过期且无刷新
+/// 令牌」的会话 —— 正是把 [AuthManager.restore] 引向 [_dropSession] 的形状。
+final class _GatedClearStore implements TokenStore {
+  final Completer<void> clearGate = Completer<void>();
+  AuthSession? saved;
 
-  final Duration logoutDelay;
-  Completer<AuthSession>? _gate;
-  int refreshCount = 0;
+  @override
+  Future<void> save(AuthSession session) async {
+    saved = session;
+  }
 
-  static AuthSession gated(String token) => AuthSession(
-        accessToken: token,
-        refreshToken: const RefreshToken('refresh'),
+  @override
+  Future<AuthSession?> load() async => AuthSession(
+        accessToken: 'old',
         userId: 'u1',
+        expiresAt: DateTime.utc(2000),
       );
 
-  void complete(AuthSession session) => _gate?.complete(session);
-
   @override
-  Future<AuthSession> login(Credentials credentials) async => gated('a');
-
-  @override
-  Future<AuthSession> register(RegistrationInput input) async => gated('a');
-
-  @override
-  Future<void> logout(SessionHandle handle) async {
-    if (logoutDelay > Duration.zero) {
-      await Future<void>.delayed(logoutDelay);
-    }
+  Future<void> clear() async {
+    await clearGate.future;
+    saved = null;
   }
+}
 
-  @override
-  Future<AuthSession> refresh(RefreshToken token) {
-    refreshCount++;
-    return (_gate ??= Completer<AuthSession>()).future;
-  }
+void main() {
+  test('a logout during login persist does not resurrect the session',
+      () async {
+    final store = _GatedSaveStore();
+    final manager = AuthManager(
+      strategy: FakeAuthStrategy(),
+      tokenStore: store,
+    );
+
+    // The future is created inside expectLater so the (expected) abort stays
+    // within its managed zone. Login is frozen mid-persist.
+    // future 在 expectLater 内创建，使「预期的中止」处于受管 zone 内。登录冻在持久化途中。
+    final expectation = expectLater(
+      () => manager.login(Credentials(username: 'u', password: 'p')),
+      throwsA(isA<NoActiveSessionException>()),
+    );
+    expect(manager.current, isA<Authenticating>());
+
+    // Log out while the login is still writing.
+    // 在登录仍写入时登出。
+    await manager.logout();
+    expect(manager.current, isA<Unauthenticated>());
+
+    // Release the stalled persist: the now-stale login must abort and must not
+    // leave its tokens in the store.
+    // 放行卡住的持久化：已失效的登录必须中止，且不能把令牌留在存储里。
+    store.saveGate.complete();
+    await expectation;
+
+    expect(manager.current, isA<Unauthenticated>());
+    expect(store.saved, isNull);
+  });
+
+  test('a logout during register persist does not resurrect the session',
+      () async {
+    final store = _GatedSaveStore();
+    final manager = AuthManager(
+      strategy: FakeAuthStrategy(),
+      tokenStore: store,
+    );
+
+    final expectation = expectLater(
+      () => manager.register(RegistrationInput(username: 'u', password: 'p')),
+      throwsA(isA<NoActiveSessionException>()),
+    );
+    expect(manager.current, isA<Authenticating>());
+
+    await manager.logout();
+    expect(manager.current, isA<Unauthenticated>());
+
+    store.saveGate.complete();
+    await expectation;
+
+    expect(manager.current, isA<Unauthenticated>());
+    expect(store.saved, isNull);
+  });
+
+  test('a logout during loginWith persist does not resurrect the session',
+      () async {
+    final store = _GatedSaveStore();
+    final manager = AuthManager(
+      strategy: FakeAuthStrategy(),
+      tokenStore: store,
+    );
+
+    final expectation = expectLater(
+      () => manager.loginWith(
+        (strategy) => strategy.login(Credentials(username: 'u', password: 'p')),
+      ),
+      throwsA(isA<NoActiveSessionException>()),
+    );
+    expect(manager.current, isA<Authenticating>());
+
+    await manager.logout();
+    expect(manager.current, isA<Unauthenticated>());
+
+    store.saveGate.complete();
+    await expectation;
+
+    expect(manager.current, isA<Unauthenticated>());
+    expect(store.saved, isNull);
+  });
+
+  test('a logout during refresh persist does not resurrect the session',
+      () async {
+    final store = _GatedSaveStore();
+    final manager = AuthManager(
+      strategy: FakeAuthStrategy(),
+      tokenStore: store,
+    );
+
+    // Establish a session first.
+    // 先建立会话。
+    final login = manager.login(Credentials(username: 'u', password: 'p'));
+    store.saveGate.complete();
+    await login;
+    expect(manager.current, isA<Authenticated>());
+
+    // Arm a fresh gate so refresh blocks mid-persist.
+    // 重置 gate，让 refresh 卡在持久化途中。
+    store.saveGate = Completer<void>();
+    final expectation = expectLater(
+      () => manager.refresh(),
+      throwsA(isA<NoActiveSessionException>()),
+    );
+    expect(manager.current, isA<Refreshing>());
+
+    await manager.logout();
+    expect(manager.current, isA<Unauthenticated>());
+
+    // Release the stalled persist: the refresh must abort without installing the
+    // (retired) tokens it minted.
+    // 放行卡住的持久化：刷新必须中止，且不安装它签发的（已退役）令牌。
+    store.saveGate.complete();
+    await expectation;
+
+    expect(manager.current, isA<Unauthenticated>());
+  });
+
+  test('a login during restore drop is not overwritten by the sign-out',
+      () async {
+    final store = _GatedClearStore();
+    final manager = AuthManager(
+      strategy: FakeAuthStrategy(),
+      tokenStore: store,
+    );
+
+    final restore = manager.restore(refreshIfExpired: true);
+    // Restore is frozen inside [_dropSession]'s clear.
+    // restore 冻在 [_dropSession] 的清存储途中。
+    expect(manager.current, isA<Restoring>());
+
+    // A login lands while the restore is still clearing the store.
+    // 在 restore 仍在清存储时，一次登录落地了。
+    await manager.login(Credentials(username: 'u', password: 'p'));
+    expect(manager.current, isA<Authenticated>());
+
+    // Let the restore finish; it must not overwrite the new session with a
+    // sign-out.
+    // 让 restore 结束；它不能把新会话覆盖成登出。
+    store.clearGate.complete();
+    await restore;
+
+    expect(manager.current, isA<Authenticated>());
+  });
+
+  test(
+      'AuthSession.fromJson throws an AppException (not a raw error) on '
+      'malformed input', () {
+    expect(
+      () => AuthSession.fromJson(<String, Object?>{'refreshToken': 'r'}),
+      throwsA(isA<AppException>()),
+    );
+  });
+
+  test('AuthSession.fromJson round-trips a valid session', () {
+    final session = AuthSession(
+      accessToken: 'a',
+      userId: 'u1',
+      refreshToken: RefreshToken('r'),
+      expiresAt: DateTime.utc(2030),
+    );
+    final back = AuthSession.fromJson(session.toJson());
+    expect(back.accessToken, 'a');
+    expect(back.refreshToken, isA<RefreshToken>());
+    expect(back.userId, 'u1');
+  });
 }

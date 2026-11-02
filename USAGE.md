@@ -50,7 +50,7 @@ your storage  ──▶  TokenStore     ──▶               ──▶  acces
 
 ```yaml
 dependencies:
-  zero_auth: ^2.1.0
+  zero_auth: ^2.1.1
 ```
 
 ```dart

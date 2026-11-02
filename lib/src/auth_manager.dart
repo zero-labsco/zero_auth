@@ -402,6 +402,7 @@ final class AuthManager implements AuthTokenSource {
           SessionExpiredException(
             message: 'Persisted session expired and has no refresh token',
           ),
+          epoch,
         );
         return;
       }
@@ -421,11 +422,11 @@ final class AuthManager implements AuthTokenSource {
           // the session does not stay stale forever.
           // 激活时不立即续期（刚刚才失败过），但若配置了主动续期，则按其退避策略
           // 重新排程，避免会话一直停留在过期状态。
-          _activate(session, scheduleProactive: false);
+          _activateNewSession(session, scheduleProactive: false);
           if (_autoRefreshAhead != null) _scheduleProactiveRetry();
           return;
         }
-        await _dropSession(failure);
+        await _dropSession(failure, epoch);
         return;
       }
 
@@ -436,6 +437,7 @@ final class AuthManager implements AuthTokenSource {
             message: 'Persisted session expired and could not be renewed',
             cause: failure,
           ),
+          epoch,
         );
         return;
       }
@@ -447,14 +449,14 @@ final class AuthManager implements AuthTokenSource {
     // caller's back the moment it is activated.
     // 原样恢复必须尊重「不要续期」的意图：已过期会话按原样激活，
     // 不会在激活的瞬间被主动调度偷偷刷新。
-    _activate(session, scheduleProactive: !expired);
+    _activateNewSession(session, scheduleProactive: !expired);
   }
 
   /// Clears the persisted session and lands on [Unauthenticated], reporting why
   /// so the UI can tell "never signed in" apart from "session expired".
   /// 清空持久化会话并落到 [Unauthenticated]，同时上报原因，以便界面区分
   /// 「从未登录」与「会话过期」。
-  Future<void> _dropSession(AppException failure) async {
+  Future<void> _dropSession(AppException failure, [int? epoch]) async {
     Object? clearError;
     try {
       await tokenStore.clear();
@@ -464,6 +466,10 @@ final class AuthManager implements AuthTokenSource {
       // 无法清空的存储不应阻断登出本身；状态落定后再上报原因。
       clearError = e;
     }
+    // A login/restore may have landed while we were clearing. Do not overwrite
+    // its freshly installed session with a sign-out.
+    // 清存储期间可能有 login/restore 落地。不要用登出覆盖它刚安装的会话。
+    if (epoch != null && !_isCurrent(epoch)) return;
     _emit(AuthError(failure));
     _emit(const Unauthenticated());
     if (clearError != null) {
@@ -520,9 +526,25 @@ final class AuthManager implements AuthTokenSource {
       final session = await strategy.login(credentials);
       _ensureCurrent(epoch);
       await _persist(session);
+      // A logout or dispose may have landed while we were persisting. Do not
+      // resurrect a session the user already ended, and do not leave our tokens
+      // in the store for a later restore to pick up.
+      // 持久化期间可能发生了登出或释放。不要复活用户已经结束的会话，
+      // 也不要把我们的令牌留在存储里，以免后续 restore 误读。
+      if (!_isCurrent(epoch)) {
+        try {
+          await tokenStore.clear();
+        } catch (_) {
+          // A store that cannot be cleared must not mask the abort.
+          // 无法清空的存储不能掩盖这次中止。
+        }
+        throw NoActiveSessionException(
+          message: 'Operation aborted: session invalidated meanwhile',
+        );
+      }
       _resetLifetimeObservation();
       final next = Authenticated(session);
-      _activate(session);
+      _activateNewSession(session);
       return next;
     } catch (e) {
       final failure = mapAuthFailure(e);
@@ -547,9 +569,25 @@ final class AuthManager implements AuthTokenSource {
       final session = await strategy.register(input);
       _ensureCurrent(epoch);
       await _persist(session);
+      // A logout or dispose may have landed while we were persisting. Do not
+      // resurrect a session the user already ended, and do not leave our tokens
+      // in the store for a later restore to pick up.
+      // 持久化期间可能发生了登出或释放。不要复活用户已经结束的会话，
+      // 也不要把我们的令牌留在存储里，以免后续 restore 误读。
+      if (!_isCurrent(epoch)) {
+        try {
+          await tokenStore.clear();
+        } catch (_) {
+          // A store that cannot be cleared must not mask the abort.
+          // 无法清空的存储不能掩盖这次中止。
+        }
+        throw NoActiveSessionException(
+          message: 'Operation aborted: session invalidated meanwhile',
+        );
+      }
       _resetLifetimeObservation();
       final next = Authenticated(session);
-      _activate(session);
+      _activateNewSession(session);
       return next;
     } catch (e) {
       final failure = mapAuthFailure(e);
@@ -586,9 +624,25 @@ final class AuthManager implements AuthTokenSource {
       final session = await flow(strategy);
       _ensureCurrent(epoch);
       await _persist(session);
+      // A logout or dispose may have landed while we were persisting. Do not
+      // resurrect a session the user already ended, and do not leave our tokens
+      // in the store for a later restore to pick up.
+      // 持久化期间可能发生了登出或释放。不要复活用户已经结束的会话，
+      // 也不要把我们的令牌留在存储里，以免后续 restore 误读。
+      if (!_isCurrent(epoch)) {
+        try {
+          await tokenStore.clear();
+        } catch (_) {
+          // A store that cannot be cleared must not mask the abort.
+          // 无法清空的存储不能掩盖这次中止。
+        }
+        throw NoActiveSessionException(
+          message: 'Operation aborted: session invalidated meanwhile',
+        );
+      }
       _resetLifetimeObservation();
       final next = Authenticated(session);
-      _activate(session);
+      _activateNewSession(session);
       return next;
     } catch (e) {
       final failure = mapAuthFailure(e);
@@ -1034,6 +1088,26 @@ final class AuthManager implements AuthTokenSource {
       }
       final refreshed = _mergeRefreshed(session, renewed);
       await _persist(refreshed);
+      // A logout or dispose may have landed while we were persisting the renewed
+      // tokens. Activating now would resurrect a session the user ended — and, on
+      // a rotation-aware backend, write a retired refresh token back to the store
+      // (treated as a replay).
+      // 持久化续期令牌期间可能发生了登出或释放。此时激活会复活用户已结束的会话，
+      // 且在支持轮换的后端上把已退役的刷新令牌写回存储（被当作重放）。
+      if (!_isCurrent(epoch)) {
+        try {
+          await tokenStore.clear();
+        } catch (_) {
+          // A store that cannot be cleared must not mask the abort.
+          // 无法清空的存储不能掩盖这次中止。
+        }
+        completer.completeError(
+          NoActiveSessionException(
+            message: 'Refresh aborted: session invalidated meanwhile',
+          ),
+        );
+        return;
+      }
       _activate(refreshed);
       // Any successful renewal — proactive or caller-driven — proves the
       // session is healthy again, so the backoff starts from scratch.
@@ -1111,6 +1185,20 @@ final class AuthManager implements AuthTokenSource {
     _observeLifetime(session);
     _emit(Authenticated(session));
     if (scheduleProactive) _scheduleAutoRefresh(session);
+  }
+
+  /// Installs a brand-new session (login / register / restore), clearing any
+  /// proactive-refresh bookkeeping left over from a previous session first so
+  /// stale counters or timestamps cannot bleed into the new one.
+  /// 安装一个全新会话（login / register / restore），先清掉上一段会话遗留的
+  /// 主动续期记账，以免陈旧计数或时间戳渗入新会话。
+  void _activateNewSession(
+    AuthSession session, {
+    bool scheduleProactive = true,
+  }) {
+    _proactiveFailures = 0;
+    _lastProactiveRefreshAt = null;
+    _activate(session, scheduleProactive: scheduleProactive);
   }
 
   /// Schedule a one-shot [refresh] [autoRefreshAhead] before [AuthSession.expiresAt].

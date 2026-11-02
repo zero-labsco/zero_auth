@@ -12,7 +12,7 @@
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 推荐升级：** `2.1.0` 是增量版本 —— 无需迁移。它加固了 `updateSession()` 的两处失败模式（更新回调抛出的裸异常过去会逃出公共面；更新期间落地的续期过去会用续期前派生的会话覆盖已轮换的令牌），新增 `tryLogin()` / `tryRefresh()` / `tryRestore()` 以支持 `Result` 式错误处理，让冻结的嵌套 `claims` 按内容比较，并让主动刷新排程与钳制后的时钟容差保持一致。请使用 `zero_auth: ^2.1.0`（Git 方式用 `ref: release/v2.1.0`）。
+> **🔔 推荐升级：** `2.1.1` 是补丁版本 —— 无需迁移。它修复了会话安装竞态：并发的 `logout`/`dispose` 过去可能在异步持久化途中交错，从而复活你已结束的会话（在支持令牌轮换的后端上还会把已退役的刷新令牌写回存储）；`restore()` 也可能把刚落地的新登录覆盖成登出。现在 `AuthSession.fromJson` 抛出 `AppException` 而非裸的 `TypeError`/`FormatException`。请使用 `zero_auth: ^2.1.1`（Git 方式用 `ref: release/v2.1.1`）。
 
 🌐 **[官方网站](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[在 pub.dev 查看](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[查看 GitHub 仓库](https://github.com/zero-labsco/zero_auth)**
 
@@ -64,7 +64,7 @@
 
 ```yaml
 dependencies:
-  zero_auth: ^2.1.0
+  zero_auth: ^2.1.1
 ```
 
 ### Git
@@ -74,7 +74,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v2.1.0   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
+      ref: release/v2.1.1   # 固定到 release/vX.Y.Z 分支（每个版本不可变）
 ```
 
 ## 使用方法
