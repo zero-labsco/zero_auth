@@ -311,15 +311,13 @@ hardening fixes and a consistency fix in frozen `claims`; no migration needed.
   - **持久化会话时的瞬时失败不再让设备与后端失同步。** 后端先轮换、设备后存储，因此一次
     丢失的写入过去会留下一个已死的刷新令牌 —— 支持轮换的后端会据此吊销整个 family，让
     用户在下次启动时被登出。
-- **Extreme timing interleavings now have regression tests.** "A renewal landing
-  after `logout()`" is covered by `test/auth_manager_race_test.dart`; the
-  "a renewal still in flight when `dispose()` arrives" case was later moved to
-  `test/release_2_2_0_test.dart`. Both gate the renewal behind a `Completer`
-  instead of racing the event loop.
-  - **极端时序交错现在有了回归测试。** 「续期在 `logout()` 之后落地」由
-    `test/auth_manager_race_test.dart` 覆盖；「`dispose()` 到达时续期仍在飞行中」后来
-    迁到 `test/release_2_2_0_test.dart`。两者都用 `Completer` 挡住续期，而不是与事件
-    循环赛跑。
+- **Extreme timing interleavings now have regression tests.** Both "a renewal
+  landing after `logout()`" and "a renewal still in flight when `dispose()`
+  arrives" are covered by `test/auth_manager_race_test.dart`, which gates the
+  renewal behind a `Completer` instead of racing the event loop.
+  - **极端时序交错现在有了回归测试。** 「续期在 `logout()` 之后落地」与「`dispose()`
+    到达时续期仍在飞行中」均由 `test/auth_manager_race_test.dart` 覆盖，它用
+    `Completer` 挡住续期，而不是与事件循环赛跑。
 
 ## 1.0.0
 

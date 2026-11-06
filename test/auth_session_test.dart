@@ -1,6 +1,8 @@
 import 'package:test/test.dart';
 import 'package:zero_auth/zero_auth.dart';
 
+import 'test_doubles.dart';
+
 void main() {
   group('RefreshToken', () {
     test('equality is value-based', () {
@@ -326,6 +328,79 @@ void main() {
 
       expect(a == b, isFalse);
       expect({a, b}.length, 2);
+    });
+  });
+
+  group('AuthSession & RefreshToken deserialization', () {
+    test('RefreshToken.fromJson throws an AppException, never a raw TypeError',
+        () {
+      for (final bad in <Object?>[
+        42,
+        null,
+        <String>['x'],
+        <String, int>{'x': 1},
+        true,
+      ]) {
+        expect(
+          () => RefreshToken.fromJson(bad),
+          throwsA(isA<UnexpectedAuthException>()),
+          reason: 'input: $bad',
+        );
+        expect(
+          () => RefreshToken.fromJson(bad),
+          throwsA(isA<AppException>()),
+          reason: 'input: $bad',
+        );
+      }
+    });
+
+    test('RefreshToken.tryFromJson returns null for anything but a String', () {
+      for (final bad in <Object?>[
+        42,
+        null,
+        <String>['x'],
+        <String, int>{'x': 1},
+      ]) {
+        expect(RefreshToken.tryFromJson(bad), isNull, reason: 'input: $bad');
+      }
+      expect(RefreshToken.tryFromJson('r1'), const RefreshToken('r1'));
+    });
+
+    test('RefreshToken JSON round-trips through both entry points', () {
+      const token = RefreshToken('r1');
+      expect(RefreshToken.fromJson(token.toJson()), token);
+      expect(RefreshToken.tryFromJson(token.toJson()), token);
+    });
+
+    test('AuthSession.fromJson wraps every malformed shape in an AppException',
+        () {
+      final malformed = <Map<String, Object?>>[
+        <String, Object?>{},
+        <String, Object?>{'accessToken': 42},
+        <String, Object?>{'accessToken': 'a', 'refreshToken': 42},
+        <String, Object?>{'accessToken': 'a', 'expiresAt': 42},
+        <String, Object?>{'accessToken': 'a', 'expiresAt': 'not-a-date'},
+        <String, Object?>{'accessToken': 'a', 'userId': 42},
+        <String, Object?>{'accessToken': 'a', 'displayName': 42},
+        <String, Object?>{'accessToken': 'a', 'claims': 42},
+        <String, Object?>{
+          'accessToken': 'a',
+          'claims': <int, Object?>{1: 'x'},
+        },
+      ];
+      for (final json in malformed) {
+        expect(
+          () => AuthSession.fromJson(json),
+          throwsA(isA<UnexpectedAuthException>()),
+          reason: 'json: $json',
+        );
+        expect(AuthSession.tryFromJson(json), isNull, reason: 'json: $json');
+      }
+    });
+
+    test('AuthSession.tryFromJson still round-trips a valid session', () {
+      final session = testSession();
+      expect(AuthSession.tryFromJson(session.toJson()), session);
     });
   });
 }

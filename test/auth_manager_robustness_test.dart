@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 import 'package:zero_auth/zero_auth.dart';
 
 import 'fake_strategy.dart';
+import 'test_doubles.dart';
 
 /// Clears successfully but refuses to clear, so `logout()` surfaces a failure.
 final class _UndeletableStore implements TokenStore {
@@ -246,6 +247,78 @@ void main() {
 
       expect(group.accountIds, ['alice']);
       expect(group.activeId, 'alice');
+      await group.disposeAll();
+    });
+  });
+
+  group('AuthManager — failure reporting and policies', () {
+    test('register emits AuthError and rethrows the mapped failure', () async {
+      final manager = AuthManager(
+        strategy: FnStrategy(
+          registerFn: (_) async => throw const AuthFail(
+            'rejected',
+            code: 'invalid_credentials',
+          ),
+        ),
+      );
+      final states = <AuthState>[];
+      final sub = manager.state.listen(states.add);
+      await expectLater(
+        manager.register(testRegistration),
+        throwsA(isA<InvalidCredentialsException>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(states.whereType<AuthError>(), hasLength(1));
+      await sub.cancel();
+      await manager.dispose();
+    });
+
+    test('an InvalidCredentialsException renewal is terminal', () async {
+      final strategy = FakeAuthStrategy()
+        ..refreshError = AuthException('bad', code: 'invalid_credentials');
+      final store = InMemoryTokenStore();
+      final manager = AuthManager(strategy: strategy, tokenStore: store);
+      await manager.login(testCredentials);
+      await expectLater(
+        manager.refresh(),
+        throwsA(isA<InvalidCredentialsException>()),
+      );
+      expect(await store.load(), isNull);
+      expect(manager.current, const Unauthenticated());
+      await manager.dispose();
+    });
+
+    test('dropping an unrenewable session reports why and clears locally',
+        () async {
+      final manager = AuthManager(
+        strategy: FnStrategy(),
+        tokenStore: FailingClearStore(),
+      );
+      final states = <AuthState>[];
+      final sub = manager.state.listen(states.add);
+      await expectLater(
+        manager.restore(),
+        throwsA(isA<UnexpectedAuthException>()),
+      );
+      await Future<void>.delayed(Duration.zero);
+      expect(states.whereType<AuthError>(), hasLength(1));
+      expect(manager.current, const Unauthenticated());
+      await sub.cancel();
+      await manager.dispose();
+    });
+
+    test('restoreAll(parallel: true) aggregates a real failure in input order',
+        () async {
+      final group = AuthManagerGroup(
+        strategyFactory: (_) => FakeAuthStrategy(),
+        storeFactory: (id) =>
+            id == 'b' || id == 'c' ? BrokenStore() : InMemoryTokenStore(),
+      );
+      await expectLater(
+        group.restoreAll(['a', 'b', 'c'], parallel: true),
+        throwsA(isA<AppException>()),
+      );
+      expect(group.accountIds.toList(), containsAll(<String>['a', 'b', 'c']));
       await group.disposeAll();
     });
   });

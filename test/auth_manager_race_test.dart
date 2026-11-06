@@ -4,6 +4,7 @@ import 'package:test/test.dart';
 import 'package:zero_auth/zero_auth.dart';
 
 import 'fake_strategy.dart';
+import 'test_doubles.dart';
 
 /// A store whose [save] blocks until [saveGate] completes, so a caller can be
 /// frozen mid-persist and a concurrent operation (e.g. logout) slipped in.
@@ -222,5 +223,62 @@ void main() {
     expect(back.accessToken, 'a');
     expect(back.refreshToken, isA<RefreshToken>());
     expect(back.userId, 'u1');
+  });
+
+  group('AuthManager — session-installation races', () {
+    test('a logout during updateSession persist aborts and clears the store',
+        () async {
+      final store = BlockingStore();
+      final manager = AuthManager(strategy: FnStrategy(), tokenStore: store);
+      await manager.login(testCredentials);
+
+      store.blocking = true;
+      final updateGate = Completer<AuthSession>();
+      final pending = manager.updateSession((_) => updateGate.future);
+      await Future<void>.delayed(Duration.zero);
+      updateGate.complete(testSession('updated'));
+      await store.saveStarted.future;
+
+      await manager.logout();
+      store.saveGate.complete();
+
+      await expectLater(pending, throwsA(isA<NoActiveSessionException>()));
+      expect(await store.load(), isNull);
+      expect(manager.current, const Unauthenticated());
+      await manager.dispose();
+    });
+
+    test('a renewal still in flight when dispose arrives cannot resurrect',
+        () async {
+      final gate = Completer<AuthSession>();
+      final manager = AuthManager(
+        strategy: FnStrategy(refreshFn: (_) => gate.future),
+      );
+      await manager.login(testCredentials);
+      final pending = manager.refresh();
+      await manager.dispose();
+      gate.complete(testSession('late'));
+      await expectLater(pending, throwsA(isA<NoActiveSessionException>()));
+      expect(manager.currentSession?.accessToken, 'access');
+    });
+
+    test('refresh is rejected while logging out and currentSession is null',
+        () async {
+      final gate = Completer<void>();
+      final manager = AuthManager(
+        strategy: FnStrategy(logoutFn: (_) => gate.future),
+      );
+      await manager.login(testCredentials);
+      final pending = manager.logout();
+      expect(manager.current, isA<LoggingOut>());
+      expect(manager.currentSession, isNull);
+      expect(
+        () => manager.refresh(),
+        throwsA(isA<NoActiveSessionException>()),
+      );
+      gate.complete();
+      await pending;
+      await manager.dispose();
+    });
   });
 }

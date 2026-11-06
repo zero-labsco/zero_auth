@@ -46,4 +46,15 @@ void main() {
       expect(Err<int>(a), isNot(Err<int>(b)));
     });
   });
+
+  group('Err — non-AppException causes', () {
+    test('Err keeps a non-AppException cause untouched', () {
+      final err = Err<int>(StateError('x'));
+      expect(err.appException, isNull);
+      expect(() => err.getOrThrow, throwsA(isA<StateError>()));
+      final mapped = err.map((value) => value.toString());
+      expect(mapped.isErr, isTrue);
+      expect((mapped as Err<String>).error, isA<StateError>());
+    });
+  });
 }

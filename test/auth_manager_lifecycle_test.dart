@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 import 'package:zero_auth/zero_auth.dart';
 
 import 'fake_strategy.dart';
+import 'test_doubles.dart';
 
 /// A strategy whose [refresh] only resolves once [gate] completes, so tests can
 /// land a refresh result *after* another operation has finished.
@@ -522,6 +523,48 @@ void main() {
       final mapped = mapAuthFailure(StateError('boom'));
       expect(mapped, isA<UnexpectedAuthException>());
       expect(mapped.cause, isA<StateError>());
+    });
+  });
+
+  group('AuthManager — lazy state subscriptions', () {
+    test('reading state without listening does not pin an old snapshot',
+        () async {
+      final manager = AuthManager(strategy: FnStrategy());
+      final stream = manager.state;
+      await manager.login(testCredentials);
+      expect(await stream.first, isA<Authenticated>());
+      await manager.dispose();
+    });
+
+    test('the group state stream still replays the active state on listen',
+        () async {
+      final group = AuthManagerGroup(
+        strategyFactory: (_) => FakeAuthStrategy(),
+        storeFactory: (_) => InMemoryTokenStore(),
+      );
+      await group.forAccount('a').login(testCredentials);
+      group.switchTo('a');
+      final stream = group.state;
+      expect(await stream.first, isA<Authenticated>());
+      await group.disposeAll();
+    });
+  });
+
+  group('mapAuthFailure — code table tail', () {
+    test('the remaining codes map to their typed exceptions', () {
+      expect(
+        mapAuthFailure(AuthException('x', code: 'no_active_session')),
+        isA<NoActiveSessionException>(),
+      );
+      expect(
+        mapAuthFailure(const AuthFail('x', code: 'refresh_token_missing')),
+        isA<RefreshTokenMissingException>(),
+      );
+      expect(mapAuthFailure(StateError('x')), isA<UnexpectedAuthException>());
+      expect(
+        mapAuthFailure(const AuthFail('no code')),
+        isA<UnexpectedAuthException>(),
+      );
     });
   });
 }

@@ -4,6 +4,7 @@ import 'package:test/test.dart';
 import 'package:zero_auth/zero_auth.dart';
 
 import 'fake_strategy.dart';
+import 'test_doubles.dart';
 
 /// A [TokenStore] whose `load()` waits for [barrier]. It only returns once every
 /// account has started loading, which is what turns a serial restore into a
@@ -326,6 +327,39 @@ void main() {
           ),
         ),
       );
+    });
+  });
+
+  group('AuthManagerGroup — manager knobs', () {
+    AuthManagerGroup group() => AuthManagerGroup(
+          strategyFactory: (_) => FakeAuthStrategy(),
+          storeFactory: (_) => InMemoryTokenStore(),
+        );
+
+    test('clockSkewFraction defaults to 0.25 on every manager', () {
+      final g = group();
+      expect(g.forAccount('a').clockSkewFraction, 0.25);
+      expect(g.forAccount('b').clockSkewFraction, 0.25);
+    });
+
+    test('a custom clockSkewFraction reaches every manager the group creates',
+        () async {
+      final g = AuthManagerGroup(
+        strategyFactory: (_) => FakeAuthStrategy(),
+        storeFactory: (_) => InMemoryTokenStore(),
+        clockSkewFraction: 0.75,
+      );
+      expect(g.forAccount('a').clockSkewFraction, 0.75);
+      expect(g.forAccount('b').clockSkewFraction, 0.75);
+      await g.disposeAll();
+    });
+
+    test('group.validAccessToken reads the active account token', () async {
+      final g = group();
+      await g.forAccount('a').login(testCredentials);
+      g.switchTo('a');
+      expect(await g.validAccessToken(), 'access');
+      await g.disposeAll();
     });
   });
 }
