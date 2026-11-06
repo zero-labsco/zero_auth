@@ -303,14 +303,20 @@ final class AuthManager implements AuthTokenSource {
   /// State stream that replays the last value to every new listener.
   /// 状态流，对每个新订阅者重放最近值。
   Stream<AuthState> get state {
+    // Subscribe lazily: merely reading `state` without listening must not leave
+    // a dangling subscription on the broadcast controller.
+    // 惰性订阅：只读取 `state` 而不监听时，不应在广播 controller 上留下悬挂订阅。
+    StreamSubscription<AuthState>? sub;
     final sc = StreamController<AuthState>();
-    sc.add(_state);
-    final sub = _controller.stream.listen(
-      sc.add,
-      onError: sc.addError,
-      onDone: sc.close,
-    );
-    sc.onCancel = sub.cancel;
+    sc.onListen = () {
+      sc.add(_state);
+      sub = _controller.stream.listen(
+        sc.add,
+        onError: sc.addError,
+        onDone: sc.close,
+      );
+    };
+    sc.onCancel = () => sub?.cancel();
     return sc.stream;
   }
 
@@ -662,14 +668,19 @@ final class AuthManager implements AuthTokenSource {
   ///
   /// 未登录时抛出 [NoActiveSessionException]。
   ///
-  /// [update] is your code — often a network round trip for fresh profile
-  /// data — so its failures are mapped through [mapAuthFailure] and emitted as
-  /// [AuthError] before the rethrow, exactly like [login]. The session itself is
+  /// A failure thrown by [update] — your code, often a network round trip for
+  /// fresh profile data — is mapped through [mapAuthFailure], emitted as
+  /// [AuthError] and then rethrown, exactly like [login]. The session itself is
   /// untouched by such a failure, so the manager lands back on it: a failed
-  /// update never signs the user out.
-  /// [update] 是你的代码 —— 常常是一次联网拉取最新资料的往返 —— 因此它的失败会经
+  /// update never signs the user out. A failure from persisting the new session,
+  /// or an abort caused by a concurrent logout, is an [AppException] too but is
+  /// reported by the return value only, so it cannot flash an error over a
+  /// session that is still valid (or overwrite a sign-out already in progress).
+  /// [update] 是你的代码 —— 常常是一次联网拉取最新资料的往返 —— 它抛出的失败会经
   /// [mapAuthFailure] 映射，并在重新抛出前以 [AuthError] 发出，与 [login] 完全一致。
   /// 这类失败不会触及会话本身，因此管理器会落回原会话：更新失败绝不会把用户登出。
+  /// 持久化新会话时的失败、以及并发登出导致的中止同样是 [AppException]，但只通过
+  /// 返回值上报，以免在仍然有效的会话上闪出错误态（或覆盖已开始的登出）。
   ///
   /// A renewal that lands while [update] runs aborts the call: installing a
   /// session derived from the pre-renewal one would overwrite the rotated
@@ -821,6 +832,49 @@ final class AuthManager implements AuthTokenSource {
   /// 仅仅「没有会话」则仍是 [Ok] —— 「未登录」是一种结果，而不是错误。
   Future<Result<void>> tryRestore({bool refreshIfExpired = true}) =>
       _outcome(() => restore(refreshIfExpired: refreshIfExpired));
+
+  /// [register] without the rethrow: the outcome arrives as a [Result].
+  ///
+  /// Shares [register]'s code path, including its `AuthError` emission and the
+  /// `auth_flow_in_progress` guard; a failure arrives as [Err].
+  /// 不会重新抛出的 [register]：结果以 [Result] 返回。
+  ///
+  /// 共用 [register] 的代码路径（含 `AuthError` 发射与 `auth_flow_in_progress`
+  /// 守卫）；失败以 [Err] 返回。
+  Future<Result<Authenticated>> tryRegister(RegistrationInput input) =>
+      _outcome(() => register(input));
+
+  /// [loginWith] without the rethrow: the outcome arrives as a [Result].
+  /// 不会重新抛出的 [loginWith]：结果以 [Result] 返回。
+  ///
+  /// Adopts a session from any flow you drive yourself, exactly like
+  /// [loginWith], but the outcome is an [Ok] or [Err].
+  /// 与 [loginWith] 一样接纳你自行驱动的任意流程所产生的会话，
+  /// 只是结果以 [Ok] / [Err] 交付。
+  Future<Result<Authenticated>> tryLoginWith(
+    Future<AuthSession> Function(AuthStrategy strategy) flow,
+  ) =>
+      _outcome(() => loginWith(flow));
+
+  /// [logout] without the rethrow: the outcome arrives as a [Result].
+  ///
+  /// Local sign-out always completes; only a failing `TokenStore.clear()` is
+  /// reported as [Err].
+  /// 不会重新抛出的 [logout]：结果以 [Result] 返回。
+  ///
+  /// 本地登出始终完成；只有 `TokenStore.clear()` 失败才以 [Err] 上报。
+  Future<Result<void>> tryLogout() => _outcome(() => logout());
+
+  /// [updateSession] without the rethrow: the outcome arrives as a [Result].
+  ///
+  /// A failed update keeps the session, exactly like the throwing variant.
+  /// 不会重新抛出的 [updateSession]：结果以 [Result] 返回。
+  ///
+  /// 更新失败会保留会话，与抛异常版本完全一致。
+  Future<Result<Authenticated>> tryUpdateSession(
+    FutureOr<AuthSession> Function(AuthSession current) update,
+  ) =>
+      _outcome(() => updateSession(update));
 
   /// Whether the strategy implements [T], letting optional capabilities be used
   /// without widening the [AuthStrategy] contract.

@@ -70,9 +70,13 @@ Future<AuthSession> login(Credentials credentials) async {
       'account': credentials.username,   // email, phone, whatever you accept
       'password': credentials.password,
     });
+    // fromJson throws UnexpectedAuthException (an AppException) on a malformed
+    // payload; for untrusted network data prefer AuthSession.tryFromJson(json).
+    // 响应畸形时 fromJson 会抛 UnexpectedAuthException（一种 AppException）；
+    // 解析不可信网络数据请优先用 AuthSession.tryFromJson(json)。
     return AuthSession.fromJson(json as Map<String, Object?>);
   } on MyApiAuthError catch (e) {
-    throw AuthException(code: 'invalid_credentials', message: e.message);
+    throw AuthException(e.message, code: 'invalid_credentials');
   }
 }
 ```
@@ -96,14 +100,80 @@ AuthSession(
 
 > When the map comes from the network or disk, prefer
 > `AuthSession.tryFromJson(json)` — it returns `null` on malformed data instead
-> of throwing. / 映射来自网络或磁盘时，请优先用 `AuthSession.tryFromJson(json)`
-> —— 畸形数据返回 `null` 而不是抛异常。
+> of the `UnexpectedAuthException` (an `AppException`) that `fromJson` throws.
+> / 映射来自网络或磁盘时，请优先用 `AuthSession.tryFromJson(json)`
+> —— 畸形数据返回 `null`，而不是让 `fromJson` 抛 `UnexpectedAuthException`（一种 `AppException`）。
+
+## Optional capabilities / 可选能力
+
+The four methods above are the whole required contract. Anything extra —
+password reset, password change, re-authentication — is opt-in: implement
+`SupportsPasswordReset`, `SupportsPasswordChange` or `SupportsReauthentication`
+on your strategy, then detect it at runtime with `AuthManager.supports<T>()`.
+
+上面四个方法就是全部必需契约。密码重置、修改密码、重新认证等额外能力都是可选的：
+在策略上实现 `SupportsPasswordReset`、`SupportsPasswordChange` 或
+`SupportsReauthentication`，再用 `AuthManager.supports<T>()` 在运行时检测。
+
+```dart
+class MyAuthStrategy implements AuthStrategy, SupportsPasswordReset {
+  @override
+  Future<AuthSession> login(Credentials credentials) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<AuthSession> register(RegistrationInput input) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> logout(SessionHandle handle) async {}
+
+  @override
+  Future<AuthSession> refresh(RefreshToken token) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> requestPasswordReset(String identifier) async {}
+}
+
+final auth = AuthManager(strategy: MyAuthStrategy());
+
+if (auth.supports<SupportsPasswordReset>()) {
+  await (auth.strategy as SupportsPasswordReset)
+      .requestPasswordReset('user@example.com');
+}
+```
+
+Capability methods report failures like any other strategy call: throw an
+`AuthException` carrying a `code`, or build one from the bare domain type with
+`AuthException.fromFail(AuthFail(...))` so `mapAuthFailure` can map it.
+
+能力方法汇报失败的方式与其它策略调用一致：抛出携带 `code` 的 `AuthException`，
+或用 `AuthException.fromFail(AuthFail(...))` 从裸领域类型构造，交给
+`mapAuthFailure` 统一映射。
+
+```dart
+throw AuthException.fromFail(
+  const AuthFail('Rate limited', code: 'rate_limited'),
+);
+```
 
 ## Example backend / 演示后端
 
-`server/` is a layered `dart:io` demo backend exercising `/login`, `/refresh`, `/logout`, `/me` and `/health`. Run it with `dart run bin/server.dart` on port `8080`. It issues real HMAC-SHA256 JWTs with refresh-token rotation and replay detection, and logs every request with its status and duration. The demo account is `user` / `user`.
+`server/` is a layered `dart:io` demo backend. Run it with `dart run bin/server.dart` on port `8080`. It issues real HMAC-SHA256 JWTs with refresh-token rotation and replay detection, and logs every request with its status and duration. The demo account is `user` / `user`.
 
-`server/` 是一个分层的 `dart:io` 演示后端，提供 `/login`、`/refresh`、`/logout`、`/me` 与 `/health`。用 `dart run bin/server.dart` 在 `8080` 端口启动。它签发真实的 HMAC-SHA256 JWT，带刷新令牌轮换与重放检测，并记录每条请求的状态码与耗时。演示账号为 `user` / `user`。
+`server/` 是一个分层的 `dart:io` 演示后端。用 `dart run bin/server.dart` 在 `8080` 端口启动。它签发真实的 HMAC-SHA256 JWT，带刷新令牌轮换与重放检测，并记录每条请求的状态码与耗时。演示账号为 `user` / `user`。
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /login`, `POST /register` | Sign in or create an account; both return a real JWT pair / 登录或注册，均返回真实 JWT 对 |
+| `POST /refresh` | Rotate the refresh token / 轮换刷新令牌 |
+| `POST /logout` | Revoke the token family / 吊销令牌族 |
+| `GET /me` | Protected endpoint echoing the current user / 需 Bearer 令牌，回显当前用户 |
+| `GET /health` | Liveness plus counters / 存活检查与计数 |
+| `POST /debug/expire-access` | Reject every access token issued so far / 让已签发的访问令牌全部失效 |
+| `POST /debug/access-ttl` | Change the lifetime granted to new tokens / 修改新令牌的有效期 |
+| `POST /debug/reset` | Restore defaults and clear simulated expiry / 恢复默认值并清除模拟过期 |
 
 ## Next Steps / 下一步
 

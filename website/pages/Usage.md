@@ -56,10 +56,32 @@ await for (final state in auth.state) {
 | `loginWith(flow)` | Adopt a session from a flow you drive yourself (OAuth, magic link…) / 接纳自行驱动流程产生的会话 |
 | `accessToken` | The current token, possibly already expired / 当前令牌，可能已过期 |
 | `validAccessToken({leeway})` | A token guaranteed unexpired, renewing first when needed / 保证未过期的令牌，必要时先续期 |
+| `tryLogin`, `tryRegister`, `tryLoginWith`, `tryRefresh`, `tryRestore`, `tryLogout`, `tryUpdateSession` | Exception-free twins of the operations above, each returning `Future<Result<T>>` / 上述操作的无异常孪生方法，均返回 `Future<Result<T>>` |
 
 `AuthManager` itself **is** an `AuthTokenSource`, so there is no separate `tokenSource` member to reach for: pass the manager (or the narrower interface) straight to your HTTP layer.
 
 `AuthManager` 本身**就是** `AuthTokenSource`，因此并不存在单独的 `tokenSource` 成员：把管理器（或更窄的接口）直接交给网络层即可。
+
+All seven `try*` variants share the throwing code path and deliver `Ok` / `Err`
+instead of an `AppException`; see [Errors](Errors). For untrusted persisted
+values, `RefreshToken.tryFromJson(Object? json)` returns `null` on malformed
+input, while `RefreshToken.fromJson` throws `UnexpectedAuthException` (an
+`AppException`) for a non-`String`. Group and policy knobs live in
+[Configuration](Configuration): `AuthManagerGroup.clockSkewFraction` (default
+`0.25`) is forwarded to every manager the group creates, and
+`refreshFailurePolicy` has the signature `bool Function(AppException)` —
+`defaultRefreshFailurePolicy` signs out only for `SessionExpiredException` /
+`InvalidCredentialsException`, keeping the session for transient failures.
+
+七个 `try*` 变体共用抛异常版本的代码路径，以 `Ok` / `Err` 交付而非抛出
+`AppException`；详见[错误](Errors)。解析不可信的持久化值请用
+`RefreshToken.tryFromJson(Object? json)`：畸形输入返回 `null`，而
+`RefreshToken.fromJson` 对非 `String` 抛 `UnexpectedAuthException`（一种
+`AppException`）。分组与策略配置见[配置](Configuration)：
+`AuthManagerGroup.clockSkewFraction`（默认 `0.25`）会转发给分组创建的每个管理器；
+`refreshFailurePolicy` 的签名为 `bool Function(AppException)`，
+`defaultRefreshFailurePolicy` 仅对 `SessionExpiredException` /
+`InvalidCredentialsException` 登出，瞬时失败则保留会话。
 
 ## Token refresh & expiry / 令牌刷新与过期
 

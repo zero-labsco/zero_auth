@@ -14,8 +14,34 @@ final class RefreshToken {
   String toJson() => value;
 
   /// Deserialize from a raw string value.
+  ///
+  /// Throws [UnexpectedAuthException] (an [AppException]) when [json] is not a
+  /// String, so a malformed store or network payload never leaks a raw
+  /// [TypeError] across the public surface. Use [tryFromJson] for untrusted data.
   /// 从原始字符串值反序列化。
-  factory RefreshToken.fromJson(Object? json) => RefreshToken(json as String);
+  ///
+  /// 当 [json] 不是 String 时抛出 [UnexpectedAuthException]（一种 [AppException]），
+  /// 确保畸形的存储 / 网络数据不会以裸 [TypeError] 跨越公共面。
+  /// 处理不可信数据时请改用 [tryFromJson]。
+  factory RefreshToken.fromJson(Object? json) {
+    final token = tryFromJson(json);
+    if (token == null) {
+      throw UnexpectedAuthException(
+        message: 'RefreshToken.fromJson: expected a String value',
+      );
+    }
+    return token;
+  }
+
+  /// Deserialize from a raw string value, or return `null` when it is not a
+  /// String. Prefer this for anything read from disk or secure storage.
+  /// 从原始字符串值反序列化；不是 String 时返回 `null`。
+  /// 凡是从磁盘或安全存储读出的内容都建议用它。
+  static RefreshToken? tryFromJson(Object? json) {
+    final value = json;
+    if (value is! String) return null;
+    return RefreshToken(value);
+  }
 
   @override
   bool operator ==(Object other) =>
@@ -181,8 +207,6 @@ final class AuthSession {
       };
 
   /// Deserialize from a map produced by [toJson].
-  /// 从 [toJson] 生成的映射反序列化。
-  /// Deserialize from a map produced by [toJson].
   ///
   /// Throws [UnexpectedAuthException] (an [AppException]) when the map does not
   /// describe a valid session, so callers never receive a raw [TypeError] /
@@ -208,14 +232,16 @@ final class AuthSession {
   /// does not describe a valid session.
   ///
   /// Prefer this over [fromJson] whenever the map comes from disk, secure
-  /// storage or the network: a schema change, a partial write or a hand-edited
-  /// value makes [fromJson] throw a [FormatException] / [TypeError] — a failure
-  /// outside the `AppException` vocabulary this package promises.
+  /// storage or the network: [fromJson] reports a schema change, a partial write
+  /// or a hand-edited value as [UnexpectedAuthException] (an [AppException]),
+  /// whereas this method simply returns `null` — which already means "not
+  /// signed in" to a [TokenStore].
   /// 从 [toJson] 生成的映射反序列化；映射无法描述合法会话时返回 `null`。
   ///
-  /// 只要映射来自磁盘、安全存储或网络，就应优先使用它而非 [fromJson]：schema 变更、
-  /// 写入中断或人为改值都会让 [fromJson] 抛出 [FormatException] / [TypeError] ——
-  /// 那是本包承诺的 `AppException` 词汇之外的失败。
+  /// 只要映射来自磁盘、安全存储或网络，就应优先使用它而非 [fromJson]：后者会把
+  /// schema 变更、写入中断或人为改值上报为 [UnexpectedAuthException]（一种
+  /// [AppException]），而本方法只返回 `null` —— 对 [TokenStore] 而言它本就代表
+  /// 「未登录」。
   static AuthSession? tryFromJson(Object? json) {
     if (json is! Map) return null;
 

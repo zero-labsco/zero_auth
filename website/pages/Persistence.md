@@ -14,16 +14,21 @@
 final json = session.toJson();            // Map<String, Object?>
 final restored = AuthSession.fromJson(json);
 
-// Prefer this inside TokenStore.load(): malformed data yields null ("not signed
-// in") instead of a FormatException / TypeError.
-// TokenStore.load() 里请优先用它：畸形数据返回 null（即「未登录」），而不是抛
-// FormatException / TypeError。
+// AuthSession.fromJson throws UnexpectedAuthException (an AppException) on
+// malformed data. Prefer tryFromJson inside TokenStore.load(): it returns null
+// ("not signed in") instead of throwing.
+// AuthSession.fromJson 对畸形数据抛 UnexpectedAuthException（一种 AppException）。
+// TokenStore.load() 里请优先用 tryFromJson：它返回 null（即「未登录」）而不抛异常。
 final safe = AuthSession.tryFromJson(json);
+
+// The matching safe path for a bare token value: null on any non-String input.
+// 单个令牌值的对应安全解析：非 String 输入返回 null，适合不可信数据。
+final token = RefreshToken.tryFromJson(rawValue);
 ```
 
-`RefreshToken` serializes to its raw string too, so a persisted session rehydrates losslessly.
+`RefreshToken` serializes to its raw string too, so a persisted session rehydrates losslessly. For untrusted persisted values use `RefreshToken.tryFromJson(Object? json)` — it returns `null` on malformed input, while `RefreshToken.fromJson` now throws `UnexpectedAuthException` (an `AppException`) for a non-`String` instead of a bare `TypeError`.
 
-`RefreshToken` 也序列化为其原始字符串，因此持久化的会话可无损恢复。
+`RefreshToken` 也序列化为其原始字符串，因此持久化的会话可无损恢复。解析不可信的持久化数据请用 `RefreshToken.tryFromJson(Object? json)`：畸形输入返回 `null`；而 `RefreshToken.fromJson` 现在对非 `String` 抛 `UnexpectedAuthException`（一种 `AppException`），不再抛裸 `TypeError`。
 
 ## 2. Flutter — encrypted secure storage / Flutter —— 加密安全存储
 

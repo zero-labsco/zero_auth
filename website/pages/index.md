@@ -15,15 +15,16 @@ A backend-agnostic auth state machine & session lifecycle core for Dart/Flutter.
 | **Pluggable Persistence** | The only persistence surface is `TokenStore.save/load/clear`; `InMemoryTokenStore` ships in-core / 唯一的持久化接口，内核自带内存实现 |
 | **Typed Session** | `AuthSession` carries access/refresh tokens, expiry (`isExpired`), user id, display name and raw claims / 强类型会话，无需手工解析令牌 |
 | **Unified Errors** | Every failure maps to `AppException` (`AuthException` for auth cases) or a `Result<T>` wrapper; raw exceptions never cross the public surface / 统一异常与结果，裸异常不越界 |
+| **Exception-free `try*` Family** | Seven `Future<Result<T>>` variants — `tryLogin`, `tryRegister`, `tryLoginWith`, `tryRefresh`, `tryRestore`, `tryLogout`, `tryUpdateSession` — share the throwing paths but deliver `Ok` / `Err` / 七个 `Future<Result<T>>` 变体共享抛异常路径，改以 `Ok` / `Err` 交付 |
 | **Network Integration** | `AuthManager` itself is an `AuthTokenSource`, so a Dio interceptor can attach `Authorization: Bearer` without depending on the manager / 管理器即令牌源，Dio 拦截器零依赖附加令牌 |
-| **Session Serialization** | `AuthSession.toJson` / `fromJson` make persistence a one-liner, and `tryFromJson` returns `null` on malformed data; a file-based reference store ships for server/CLI / `AuthSession.toJson` / `fromJson` 让持久化一行搞定，`tryFromJson` 遇畸形数据返回 `null`，并附带面向服务端 / CLI 的文件参考存储 |
+| **Session Serialization** | `AuthSession.toJson` / `fromJson` make persistence a one-liner; `tryFromJson` returns `null` on malformed data while `fromJson` throws `UnexpectedAuthException` (an `AppException`), and `RefreshToken.tryFromJson` does the same for untrusted token values; a file-based reference store ships for server/CLI / `AuthSession.toJson` / `fromJson` 让持久化一行搞定，`tryFromJson` 遇畸形数据返回 `null` 而 `fromJson` 抛 `UnexpectedAuthException`（一种 `AppException`），`RefreshToken.tryFromJson` 为不可信令牌值提供同样的安全解析，并附带面向服务端 / CLI 的文件参考存储 |
 | **Proactive Auto-refresh** | Pass `autoRefreshAhead` to renew tokens before expiry (single-flight) / 传入 `autoRefreshAhead` 在过期前自动续期（单飞） |
 | **Never an Expired Token** | `validAccessToken()` renews first when the token has expired — or is about to, per `clockSkew` — so interceptors never send a dead bearer token / 令牌过期（或按 `clockSkew` 即将过期）时先续期，拦截器不会发出失效令牌 |
 | **Bring Your Own Login** | `loginWith` adopts a session from any flow you drive: third-party OAuth, magic links, passkeys / `loginWith` 可接纳第三方 OAuth、魔法链接、Passkey 等自定义流程 |
 | **Typed Auth Exceptions** | `InvalidCredentialsException`, `SessionExpiredException` and friends, mapped from your strategy's `code` / `InvalidCredentialsException`、`SessionExpiredException` 等，由策略的 `code` 映射而来 |
-| **Configurable Failure Policy** | `refreshFailurePolicy` decides whether a failed refresh signs the user out / `refreshFailurePolicy` 决定刷新失败是否登出 |
+| **Configurable Failure Policy** | `refreshFailurePolicy` is a `bool Function(AppException)` deciding whether a failed refresh signs the user out; `defaultRefreshFailurePolicy` signs out only for `SessionExpiredException` / `InvalidCredentialsException` and keeps the session for transient failures / `refreshFailurePolicy` 是 `bool Function(AppException)`，决定刷新失败是否登出；`defaultRefreshFailurePolicy` 仅对 `SessionExpiredException` / `InvalidCredentialsException` 登出，瞬时失败保留会话 |
 | **Runnable Example** | A full Flutter demo app (Android/iOS/Web/Windows) plus a layered `dart:io` demo backend that issues real JWTs / 完整 Flutter 示例与一个签发真实 JWT 的分层演示后端 |
-| **Multiple Accounts** | Optional `AuthManagerGroup` keeps one manager per account / 可选 `AuthManagerGroup`，每账号一个管理器 |
+| **Multiple Accounts** | Optional `AuthManagerGroup` keeps one manager per account and forwards `clockSkewFraction` (default `0.25`) to every manager it creates / 可选 `AuthManagerGroup`，每账号一个管理器，并把 `clockSkewFraction`（默认 `0.25`）转发给它创建的每个管理器 |
 | **Cross-platform** | Pure Dart — runs anywhere Dart or Flutter runs / 纯 Dart，跨平台 |
 
 ## 📚 Table of Contents / 目录

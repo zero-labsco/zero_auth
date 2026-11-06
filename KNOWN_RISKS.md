@@ -1,8 +1,11 @@
 # Known Risks & Post-release Watchlist / 已知风险与发版后观察清单
 
-> Scope / 适用范围: `zero_auth` **1.1.1**.
-> 本文件记录发版时**有意接受**的风险与需要观察的项 —— 它们不是已知缺陷（缺陷见
-> `CHANGELOG.md` 的 1.1.1 "Fixed" 段），而是"当前判断下性价比最高的选择"。
+> Scope / 适用范围: `zero_auth` **2.2.0**.
+> This file records the risks **deliberately accepted** at release time — they
+> are not known defects (defects are tracked in the `2.2.0` section of
+> `CHANGELOG.md`), but the choices that offer the best trade-off today.
+> 本文件记录发版时**有意接受**的风险与需要观察的项 —— 它们不是已知缺陷（见
+> `CHANGELOG.md` 的 `2.2.0` 段），而是"当前判断下性价比最高的选择"。
 > Each entry states what could go wrong, how to notice it, and what to do if it
 > does. 每条都写清：会出什么问题、如何察觉、真发生了怎么办。
 >
@@ -28,7 +31,7 @@
 | Trigger / 触发条件 | Mixing lifecycles: a manager created by the group but disposed by a provider/scope of your own. 生命周期混用：由分组创建、却被你自己的 provider/作用域释放。 |
 | Watch / 观察 | `activeId` unexpectedly `null`, or an account disappearing from `accountIds`. `activeId` 意外变成 `null`，或某个账号从 `accountIds` 中消失。 |
 | Mitigation today / 当前缓解 | Always release accounts through `group.remove(id)` / `group.disposeAll()`. 始终通过 `group.remove(id)` / `group.disposeAll()` 释放。 |
-| Plan / 计划 | None — intended behaviour. Keep as-is in 1.x. 无需变更，这是预期行为，1.x 保持。 |
+| Plan / 计划 | None — intended behaviour. Keep as-is in 2.x. 无需变更，这是预期行为，2.x 保持。 |
 
 ---
 
@@ -54,7 +57,7 @@
 | Trigger / 触发条件 | A backend that hands out reusable / deterministic sessions, or logging in twice with the same identity. 后端签发可复用 / 确定性会话，或用同一身份连续登录两次。 |
 | Watch / 观察 | "I pressed log in and nothing happened" while `current` already reads `Authenticated`. 「点了登录没反应」，而 `current` 已经是 `Authenticated`。 |
 | Mitigation today / 当前缓解 | Trust the return value: `login()` / `register()` / `loginWith()` always return the `Authenticated` they installed, even when the stream stays quiet. 以返回值为准：`login()` / `register()` / `loginWith()` 总会返回它安装的 `Authenticated`，即便流保持安静。 |
-| Plan / 计划 | None — intended behaviour. Keep as-is in 1.x. 无需变更，这是预期行为，1.x 保持。 |
+| Plan / 计划 | None — intended behaviour. Keep as-is in 2.x. 无需变更，这是预期行为，2.x 保持。 |
 
 ---
 
@@ -67,7 +70,7 @@
 | Trigger / 触发条件 | A backend that returns tokens only **and** whose claims can change between renewals. 后端续期只返回令牌，**且**其 claims 会在两次续期之间变化。 |
 | Watch / 观察 | A display name or permission that does not update until the next full login. 显示名或权限直到下次完整登录才更新。 |
 | Mitigation today / 当前缓解 | Documented on the Configuration page. Pull authoritative claims with `updateSession()` when you need them, or set `preserveSessionDetails: false` to take the backend answer verbatim. 已写入配置页。需要权威 claims 时用 `updateSession()` 拉一次，或把 `preserveSessionDetails` 设为 `false`，原样采用后端响应。 |
-| Plan / 计划 | Keep the default; revisit at `1.2.0` on feedback. 保留默认值；`1.2.0` 依反馈复查。 |
+| Plan / 计划 | Keep the default; revisit at `2.3.0` on feedback. 保留默认值；`2.3.0` 依反馈复查。 |
 
 ---
 
@@ -78,14 +81,14 @@
   `activeId null`, `slow startup`. 按上面的信号关注 issue。
 - **Day 30 / 第 30 天**: any item with **no** reports drops to "accepted, no action";
   any item with a report becomes a `fix/` branch plus a regression test, released
-  as `1.1.x`. 无报告项降为「已接受」；有报告项转为 `fix/` 分支 + 回归测试，发 `1.1.x`。
+  as `2.2.x`. 无报告项降为「已接受」；有报告项转为 `fix/` 分支 + 回归测试，发 `2.2.x`。
 - **Every release / 每个版本**: re-read this file and update it — an accepted risk
   that no longer applies should be deleted, not left to rot.
   每次发版复查并更新本文件：不再适用的风险应删除，而不是留着腐烂。
 
 ## Reporting / 上报
 
-Use the bug template and quote the risk id (`R5`–`R7`, `R9`, `R11`) if it matches:
-提交 bug 时若匹配某项，请引用风险编号（`R5`–`R7`、`R9`、`R11`）：
+Use the bug template and quote the risk id (`R5`, `R7`, `R9`, `R11`) if it matches:
+提交 bug 时若匹配某项，请引用风险编号（`R5`、`R7`、`R9`、`R11`）：
 
 - 🐛 [Report a Bug](https://github.com/zero-labsco/zero_auth/issues/new?template=bug_report.md)

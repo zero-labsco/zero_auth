@@ -4,8 +4,9 @@ typedef RouteHandler = Future<void> Function(HttpRequest request);
 
 /// Tiny method + path router.
 ///
-/// A real backend would use shelf or dart_frog; this stays zero-dependency so
-/// the demo backend runs with nothing but the Dart SDK.
+/// A real backend would use shelf or dart_frog; this router stays minimal on
+/// purpose. The demo backend has exactly one dependency: `crypto`, used only
+/// for HMAC-SHA256 token signing.
 final class Router {
   final Map<String, RouteHandler> _routes = {};
 

@@ -12,7 +12,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 [![Dart](https://img.shields.io/badge/Dart-✓-0175C2?logo=dart)](https://dart.dev)
 [![Style: effective dart](https://img.shields.io/badge/style-effective_dart-40c4ff.svg)](https://pub.dev/packages/effective_dart)
 
-> **🔔 Upgrade recommended:** `2.1.1` is a patch release — no migration. It fixes session-installation races: a concurrent `logout`/`dispose` could previously interleave inside the async persist and resurrect a session you had already ended (and, on a token-rotation backend, write a retired refresh token back to the store); `restore()` could likewise sign you out over a freshly landed login. `AuthSession.fromJson` now raises an `AppException` instead of a raw `TypeError`/`FormatException`. Pin `zero_auth: ^2.1.1` (or git `ref: release/v2.1.1`).
+> **🔔 Upgrade recommended:** `2.2.0` is an additive release — no migration. It completes the `Result` API with `tryRegister()`, `tryLoginWith()`, `tryLogout()` and `tryUpdateSession()`, adds `RefreshToken.tryFromJson()` and makes `RefreshToken.fromJson()` throw an `AppException` instead of a raw `TypeError`, forwards `clockSkewFraction` to every manager created by `AuthManagerGroup`, and fixes a `state` stream subscription leak. Pin `zero_auth: ^2.2.0` (or git `ref: release/v2.2.0`).
 
 🌐 **[Official Website](https://www.zerolabsco.com/)** &nbsp;·&nbsp; 📦 **[View on pub.dev](https://pub.dev/packages/zero_auth)** &nbsp;·&nbsp; 🔗 **[View on GitHub](https://github.com/zero-labsco/zero_auth)**
 
@@ -48,6 +48,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 - **Never send an expired token** — `validAccessToken()` renews the session first when the token has expired (or is about to, per `clockSkew`); ideal for HTTP interceptors.
 - **Clock-skew tolerant** — `clockSkew` (default 30s) treats a token as expired a little early, so a device clock running ahead cannot hand out a token that dies in flight.
 - **Typed auth exceptions** — `InvalidCredentialsException`, `SessionExpiredException`, and friends, mapped automatically from your strategy's `AuthException.code`.
+- **Exception-free `try*` family** — seven `Result<T>`-returning twins (`tryLogin`, `tryRegister`, `tryLoginWith`, `tryRefresh`, `tryRestore`, `tryLogout`, `tryUpdateSession`) share the throwing code paths without the rethrow.
 - **Configurable refresh failure handling** — `refreshFailurePolicy` decides whether a failed refresh signs the user out (default: yes for unrecoverable failures, no for transient ones).
 - **Multiple accounts (opt-in)** — `AuthManagerGroup` keeps one `AuthManager` per account so several can stay signed in at once; the core itself stays single-session.
 - **Pluggable persistence** — `TokenStore` is the only persistence boundary; the core ships `InMemoryTokenStore`, production uses a secure store (see `example/`).
@@ -55,7 +56,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 - **Network-ready** — `AuthTokenSource` is the extension point that lets Dio / GraphQL interceptors attach `Authorization: Bearer` headers.
 - **Zero native code** — no plugins, no `dart:io`-only APIs; runs on server, CLI, and Flutter alike.
 - **Strongly-typed session** — `AuthSession` carries access/refresh tokens, expiry, and raw claims.
-- **Session (de)serialization** — `AuthSession.toJson` / `AuthSession.fromJson` make persistence a one-liner; `AuthSession.tryFromJson` returns `null` instead of throwing on malformed data. A file-based reference store ships for server/CLI.
+- **Session (de)serialization** — `AuthSession.toJson` / `AuthSession.fromJson` make persistence a one-liner; `AuthSession.tryFromJson` returns `null` instead of throwing on malformed data, and `RefreshToken.tryFromJson` does the same for a bare token value. A ready-to-copy file-based reference store lives in `example/`.
 - **Proactive auto-refresh** — pass `autoRefreshAhead` to `AuthManager` and tokens renew before expiry (single-flight), so callers rarely hit an expired access token.
 
 ## Installation
@@ -64,7 +65,7 @@ A backend-agnostic **auth state machine & session lifecycle** for Dart/Flutter: 
 
 ```yaml
 dependencies:
-  zero_auth: ^2.1.1
+  zero_auth: ^2.2.0
 ```
 
 ### Git
@@ -74,7 +75,7 @@ dependencies:
   zero_auth:
     git:
       url: https://github.com/zero-labsco/zero_auth.git
-      ref: release/v2.1.1   # pin the release/vX.Y.Z branch (immutable per release)
+      ref: release/v2.2.0   # pin the release/vX.Y.Z branch (immutable per release)
 ```
 
 ## Usage
@@ -270,6 +271,7 @@ dart run bin/server.dart        # listens on http://localhost:8080
 | Method & path | Request | Response |
 |---------------|---------|----------|
 | `POST /login` | `{ "username": "user", "password": "user" }` | `200` real JWT pair + `expiresIn` · `401 invalid_credentials` |
+| `POST /register` | `{ "username": "…", "password": "…", "displayName": "…" }` | `200` real JWT pair + `expiresIn` · `400 bad_request` / `409 username_taken` |
 | `POST /refresh` | `{ "refreshToken": "<rotating token>" }` | `200` rotated pair · `401 invalid_grant` (expired, revoked or replayed) |
 | `POST /logout` | `{ "refreshToken": "…" }` | `200 { "ok": true }` — revokes the token family |
 | `GET /me` | header `Authorization: Bearer <access token>` | `200 { "userId", "displayName" }` · `401 invalid_token` |
@@ -296,10 +298,10 @@ flutter run
 
 ## API Reference
 
-> **Upgrading to 1.0** — the public surface is frozen under semver from here on.
+> **Since 1.0** — the public surface follows strict semver.
 > One migration step: if you `implements AuthTokenSource`, add
 > `@override Future<String?> validAccessToken({Duration? leeway}) async => accessToken;`.
-> (From 0.2.x: `AuthState` gained the `Refreshing` and `LoggingOut` subtypes, so
+> (From 0.3.0: `AuthState` gained the `Refreshing` and `LoggingOut` subtypes, so
 > exhaustive `switch` statements must handle them — prefer `state.isAuthenticated`
 > and `state.isBusy`, which stay correct as states evolve.)
 
@@ -323,6 +325,10 @@ flutter run
 | `tryLogin()` | `Future<Result<Authenticated>> tryLogin(Credentials)` | `login()` without the rethrow — the outcome arrives as a `Result` |
 | `tryRefresh()` | `Future<Result<AuthSession>> tryRefresh()` | `refresh()` without the rethrow; captures the synchronous pre-conditions too |
 | `tryRestore()` | `Future<Result<void>> tryRestore({bool refreshIfExpired = true})` | `restore()` without the rethrow — "not signed in" is still an `Ok` |
+| `tryRegister()` | `Future<Result<Authenticated>> tryRegister(RegistrationInput)` | `register()` without the rethrow |
+| `tryLoginWith()` | `Future<Result<Authenticated>> tryLoginWith(Future<AuthSession> Function(AuthStrategy))` | `loginWith()` without the rethrow |
+| `tryLogout()` | `Future<Result<void>> tryLogout()` | `logout()` without the rethrow; local clearing still always succeeds |
+| `tryUpdateSession()` | `Future<Result<Authenticated>> tryUpdateSession(FutureOr<AuthSession> Function(AuthSession))` | `updateSession()` without the rethrow; a failed update keeps the session |
 | `supports<T>()` | `bool supports<T>()` | Whether the strategy implements an optional capability |
 | `dispose()` | `Future<void>` | Closes the stream and cancels proactive refresh. Later operations throw `AuthException(code: 'manager_disposed')` |
 
@@ -333,7 +339,7 @@ single-session, so nothing changes unless you use this.
 
 | Member | Notes |
 |--------|-------|
-| constructor | `AuthManagerGroup({required strategyFactory, required storeFactory, managerFactory, autoRefreshAhead, autoRefreshRetryDelay, autoRefreshMaxRetries, autoRefreshMinInterval, refreshFailurePolicy, clock, clockSkew, preserveSessionDetails, onStateChanged, onObserverError})` — both factories receive the account id; give each account its own `TokenStore`. Every manager knob is forwarded to the managers it creates; `managerFactory` builds them yourself instead |
+| constructor | `AuthManagerGroup({required strategyFactory, required storeFactory, managerFactory, autoRefreshAhead, autoRefreshRetryDelay, autoRefreshMaxRetries, autoRefreshMinInterval, refreshFailurePolicy, clock, clockSkew, double clockSkewFraction = 0.25, preserveSessionDetails, onStateChanged, onObserverError})` — both factories receive the account id; give each account its own `TokenStore`. Every manager knob, including `clockSkewFraction`, is forwarded to the managers it creates; `managerFactory` builds them yourself instead |
 | `forAccount(id)` / `addAccount(id)` | Lazily creates and caches that account's `AuthManager` |
 | `switchTo(id)` | Makes an account active; the group's `state` follows it and `activeIdChanges` emits |
 | `activeIdChanges` | `Stream<String?>` of the active account id (`null` when none is active) |
@@ -378,8 +384,9 @@ Helpers: `isAuthenticated` is `true` for `Authenticated` **and** `Refreshing`;
 | `timeUntilExpiry([DateTime])` | Remaining lifetime, or `null` when there is no expiry |
 | `isExpiringWithin(window, [DateTime])` | Renew a little before it actually dies |
 | `copyWith(...)` | Replace only the fields you pass; `null` keeps the current value (build a new session to clear one) |
-| `toJson()` / `AuthSession.fromJson()` | Persistence; `null` fields are omitted. `fromJson` throws on malformed input |
+| `toJson()` / `AuthSession.fromJson()` | Persistence; `null` fields are omitted. `fromJson` throws `UnexpectedAuthException` (an `AppException`) on malformed input — never a raw `TypeError` / `FormatException` |
 | `AuthSession.tryFromJson()` | Same, but returns `null` instead of throwing — use it for anything read from disk or secure storage |
+| `RefreshToken.fromJson()` / `RefreshToken.tryFromJson()` | Round-trip a bare refresh-token string; `fromJson` throws `UnexpectedAuthException` (an `AppException`) for a non-`String`, `tryFromJson` returns `null` |
 
 ### Boundaries & value objects
 

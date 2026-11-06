@@ -48,3 +48,13 @@ jobs:
           ignoreLabels: |
             dependencies
             github-actions
+          # ===== 标题正文必须为英文 / Subject must be English-only =====
+          # 仅允许 ASCII 可见字符（0x20–0x7E），并保留 action 默认的「首字母小写」规则
+          # Only printable ASCII (0x20-0x7E); keeps the action's default
+          # "no leading capital" rule.
+          subjectPattern: '^(?![A-Z])[\x20-\x7E]+$'
+          subjectPatternError: |
+            The PR title subject must be English-only: printable ASCII (0x20-0x7E) only, without a leading capital.
+            Chinese or any other non-ASCII characters are not allowed in PR titles; bilingual content belongs in the PR body.
+            PR 标题正文必须仅使用英文：只允许 ASCII 可见字符（0x20-0x7E），且首字母不要大写。
+            标题中不得出现中文或其他非 ASCII 字符；双语内容请放在 PR 正文。

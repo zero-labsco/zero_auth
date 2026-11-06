@@ -31,7 +31,7 @@
 
 | It does / 负责 | It does **not** do / **不**负责 |
 |---|---|
-| 状态机 `Unauthenticated → Authenticating → Authenticated → AuthError` | 不发 HTTP 请求（无内置 client、无 `dart:io`） |
+| State machine / 状态机（7 states / 共 7 态）：`Unauthenticated → Restoring / Authenticating → Authenticated → Refreshing → LoggingOut → AuthError` | 不发 HTTP 请求（无内置 client、无 `dart:io`） |
 | 会话模型 `AuthSession`（token / 过期 / 身份） | 不做持久化实现（只定义 `TokenStore` 接口） |
 | 启动恢复 `restore()`、单飞刷新 `refresh()`、可选的主动续期 `autoRefreshAhead` | 不默认自动排程刷新（需显式开启 `autoRefreshAhead`，见 [§9](#9-refresh--expiry--刷新与过期)） |
 | 统一错误（`AppException` / `AuthException`） | 不提供 UI、路由、状态管理框架绑定 |
@@ -50,7 +50,7 @@ your storage  ──▶  TokenStore     ──▶               ──▶  acces
 
 ```yaml
 dependencies:
-  zero_auth: ^2.1.1
+  zero_auth: ^2.2.0
 ```
 
 ```dart
@@ -375,13 +375,19 @@ final class PrefsTokenStore implements TokenStore {
 > `load()` returning `null` simply means "not signed in" — `restore()` then emits `Unauthenticated`.
 > `load()` 返回 `null` 即代表未登录，`restore()` 会发出 `Unauthenticated`。
 >
-> **Prefer `AuthSession.tryFromJson()` in `load()`.** `fromJson()` throws a
-> `FormatException` / `TypeError` on malformed data, which a schema change or a
-> partial write can easily produce; `tryFromJson()` returns `null` instead, and
-> `null` already means "not signed in".
+> **Prefer `AuthSession.tryFromJson()` in `load()`.** `fromJson()` throws
+> `UnexpectedAuthException` (an `AppException`) on malformed data, which a schema
+> change or a partial write can easily produce; `tryFromJson()` still returns
+> `null` instead, and `null` already means "not signed in".
 > **`load()` 里请优先用 `AuthSession.tryFromJson()`。** `fromJson()` 遇到畸形数据会抛
-> `FormatException` / `TypeError`，而 schema 变更或写入中断很容易造成畸形数据；
-> `tryFromJson()` 则返回 `null`，而 `null` 本来就代表「未登录」。
+> `UnexpectedAuthException`（一种 `AppException`），而 schema 变更或写入中断很容易造成
+> 畸形数据；`tryFromJson()` 仍返回 `null`，而 `null` 本来就代表「未登录」。
+>
+> `RefreshToken.tryFromJson(Object? json)` behaves the same way for the nested
+> token: it returns `null` instead of throwing, while `RefreshToken.fromJson()`
+> now throws `UnexpectedAuthException` when the value is not a `String`.
+> `RefreshToken.tryFromJson(Object? json)` 对嵌套令牌同理：返回 `null` 而不抛异常；
+> `RefreshToken.fromJson()` 在值不是 `String` 时现在也会抛 `UnexpectedAuthException`。
 
 ---
 
@@ -455,10 +461,11 @@ abstract class AuthTokenSource {
 `AuthManager` **implements** `AuthTokenSource`, so hand the manager to your interceptor and it always reads the live token (no copying, no stale closures).
 `AuthManager` **本身即** `AuthTokenSource`，把管理器交给拦截器即可，永远读到最新令牌。
 
-> **1.0 note / 说明:** `validAccessToken()` is new on the interface. If you
-> `implements AuthTokenSource` yourself, add one line:
+> **Since 1.0 / 自 1.0 起:** `validAccessToken()` is part of the
+> `AuthTokenSource` interface. If you `implements AuthTokenSource` yourself, add one line:
 > `@override Future<String?> validAccessToken({Duration? leeway}) async => accessToken;`.
-> 若你自己 `implements AuthTokenSource`，请补一行（同上）。
+> 自 1.0 起 `validAccessToken()` 已属于 `AuthTokenSource` 接口；若你自己
+> `implements AuthTokenSource`，请补一行（同上）。
 
 ### 8.1 Attach the bearer header / 附加 Bearer 头
 
@@ -551,11 +558,11 @@ Future<AuthSession> refresh();
 | Proactive / 主动续期 | `autoRefreshAhead` schedules the renewal before expiry; a failure is re-armed with a linear backoff up to `autoRefreshMaxRetries` (default 3), and an already-due renewal waits at least `autoRefreshMinInterval` (default 5s) so a backend issuing very short-lived tokens cannot cause a tight loop. `autoRefreshAhead` 在过期前排程续期；失败按线性退避重试，上限 `autoRefreshMaxRetries`（默认 3），已到期的续期至少等待 `autoRefreshMinInterval`（默认 5 秒），避免后端发放极短寿命令牌时形成紧密循环。 |
 | `restore()` | An expired persisted session is renewed first. If that renewal fails **transiently** the session is kept (the next `validAccessToken()` retries); only a terminal failure clears the store. 过期的持久化会话会先续期；续期**瞬时**失败时保留会话（下次 `validAccessToken()` 会重试），只有终局失败才清空存储。 |
 
-> **0.3.0 note / 说明：** passing `autoRefreshAhead` to `AuthManager` lets the core
+> **0.2.0 note / 说明：** passing `autoRefreshAhead` to `AuthManager` lets the core
 > schedule the renewal for you (still single-flight, failures handled internally).
 > Everything below still applies if you prefer to drive refreshes yourself.
 
-> **0.3.0 说明：** 给 `AuthManager` 传入 `autoRefreshAhead` 即可让内核替你排程续期
+> **0.2.0 说明：** 给 `AuthManager` 传入 `autoRefreshAhead` 即可让内核替你排程续期
 > （依然单飞，失败在内部处理）。如果你偏好自己驱动刷新，下面的内容仍然适用。
 
 No built-in timer unless asked / **默认不内置定时器**：`zero_auth` 默认不自动排程刷新（除非传入 `autoRefreshAhead`）。Choose one / 任选其一：
@@ -644,6 +651,8 @@ Codes raised by the manager itself / 管理器自身产生的 code：
 | `auth_flow_in_progress` | Another login / register / loginWith is running / 已有登录流程在执行 |
 | `manager_disposed` | Operation called after `dispose()` / 释放后又调用操作 |
 | `unexpected_auth_failure` | Fallback for anything unclassifiable / 无法归类时的兜底 |
+| `session_persist_failed` | `TokenStore.save` failed even after one retry, so the session could not be persisted / `TokenStore.save` 重试一次后仍失败，会话无法持久化 |
+| `group_disposed` | A read on `AuthManagerGroup` after `disposeAll()` / `disposeAll()` 之后读取 `AuthManagerGroup` |
 
 ### 10.3 `Result<T>` (optional) / 可选的显式结果
 
@@ -657,12 +666,15 @@ final r = trySession();
 if (r.isOk) print(r.getOrThrow.userId);   // or r.map((s) => s.userId)
 ```
 
-Three operations produce one for you — `tryLogin()`, `tryRefresh()` and
-`tryRestore()` return the same outcome as their throwing twins, without the
-`try/catch`:
+Seven operations produce one for you — `tryLogin()`, `tryRefresh()`,
+`tryRestore()`, `tryRegister()`, `tryLoginWith()`, `tryLogout()` and
+`tryUpdateSession()` return the same outcome as their throwing twins as a
+`Future<Result<T>>`, without the rethrow or `try/catch`:
 
-三个操作会替你产出 `Result` —— `tryLogin()`、`tryRefresh()` 与 `tryRestore()`
-与各自的抛异常版本返回相同的结果，只是不需要 `try/catch`：
+七个操作会替你产出 `Result` —— `tryLogin()`、`tryRefresh()`、`tryRestore()`、
+`tryRegister()`、`tryLoginWith()`、`tryLogout()` 与 `tryUpdateSession()` 与各自的
+抛异常版本返回相同的结果，只是以 `Future<Result<T>>` 返回、不重新抛出，也不需要
+`try/catch`：
 
 ```dart
 final result = await auth.tryLogin(credentials);
@@ -673,10 +685,11 @@ if (result.isOk) {
 }
 ```
 
-Both styles share one code path: the failure is emitted as `AuthError` **and**
-rethrown by the throwing variant, so mixing them is safe.
-两种风格共用一条代码路径：失败会以 `AuthError` 发出，**并且**由抛异常版本重新抛出，
-因此混用两者是安全的。
+Both styles share one code path: the failure is emitted as `AuthError`, the
+throwing variant **rethrows** it, while every `try*` variant returns it as an
+`Err<T>` and never rethrows — so mixing them is safe.
+两种风格共用一条代码路径：失败会以 `AuthError` 发出，抛异常版本**重新抛出**，而所有
+`try*` 变体把它作为 `Err<T>` 返回且绝不重新抛出，因此混用两者是安全的。
 
 ---
 
@@ -728,7 +741,7 @@ Readable members / 可读成员：
 | `preserveSessionDetails` | `final bool` | Carry identity fields across a renewal that returns tokens only (default `true`) / 只返回令牌的续期是否保留身份字段（默认 `true`） |
 | `onStateChanged` | `final void Function(AuthState)?` | Called for every emission; handy for logging or analytics without subscribing / 每次发出状态时调用，便于日志或埋点 |
 | `onObserverError` | `final void Function(Object, StackTrace)?` | Called when `onStateChanged` throws, so a broken sink is reported instead of failing silently. Never affects the state machine / 当 `onStateChanged` 抛异常时调用，使坏掉的日志/埋点被上报而不是静默失败；绝不影响状态机 |
-| `refreshFailurePolicy` | `final RefreshFailurePolicy` | Whether a failed refresh signs out / 刷新失败是否登出 |
+| `refreshFailurePolicy` | `final RefreshFailurePolicy` | `typedef RefreshFailurePolicy = bool Function(AppException)` — return `true` for a **terminal** failure (sign out), `false` for a transient one (keep the session). Defaults to `defaultRefreshFailurePolicy`, which treats only `SessionExpiredException` / `InvalidCredentialsException` as terminal / `typedef RefreshFailurePolicy = bool Function(AppException)`：返回 `true` 表示终局失败（登出），`false` 表示瞬时失败（保留会话）；默认 `defaultRefreshFailurePolicy`，只把 `SessionExpiredException` / `InvalidCredentialsException` 判为终局 |
 | `clock` | `final DateTime Function()` | Time source; defaults to the system clock / 时间源，默认系统时钟 |
 | `current` | `AuthState get current` | Current state, always available / 当前状态，始终可读 |
 | `state` | `Stream<AuthState> get state` | Broadcast, replays last value / 广播且重放最近值 |
@@ -745,6 +758,10 @@ Readable members / 可读成员：
 | `tryLogin()` | `Future<Result<Authenticated>> tryLogin(Credentials)` | `login()` without the rethrow — `Ok` with the installed state, `Err` with the mapped failure / 不重新抛出的 `login()` —— 成功为 `Ok`（被安装的状态），失败为 `Err`（映射后的失败） |
 | `tryRefresh()` | `Future<Result<AuthSession>> tryRefresh()` | `refresh()` without the rethrow; the synchronous pre-conditions are captured too / 不重新抛出的 `refresh()`；同步前置条件同样被捕获 |
 | `tryRestore()` | `Future<Result<void>> tryRestore({bool refreshIfExpired = true})` | `restore()` without the rethrow — "not signed in" is still an `Ok` / 不重新抛出的 `restore()` —— 「未登录」仍是 `Ok` |
+| `tryRegister()` | `Future<Result<Authenticated>> tryRegister(RegistrationInput)` | `register()` without the rethrow — `Ok` with the installed state, `Err` with the mapped failure / 不重新抛出的 `register()` —— 成功为 `Ok`（被安装的状态），失败为 `Err`（映射后的失败） |
+| `tryLoginWith()` | `Future<Result<Authenticated>> tryLoginWith(Future<AuthSession> Function(AuthStrategy) flow)` | `loginWith()` without the rethrow; adopts a session from any flow / 不重新抛出的 `loginWith()`；接纳任意流程的会话 |
+| `tryLogout()` | `Future<Result<void>> tryLogout()` | `logout()` without the rethrow — local clearing still always succeeds / 不重新抛出的 `logout()`；本地清理始终完成 |
+| `tryUpdateSession()` | `Future<Result<Authenticated>> tryUpdateSession(FutureOr<AuthSession> Function(AuthSession current) update)` | `updateSession()` without the rethrow; a failed update keeps the session / 不重新抛出的 `updateSession()`；更新失败会保留会话 |
 | `supports<T>()` | `bool supports<T>()` | Whether the strategy implements an optional capability / 策略是否实现了某可选能力 |
 | `dispose()` | `Future<void>` | Closes the stream and cancels proactive refresh. **Later operations throw** `AuthException(code: 'manager_disposed')` / 关闭状态流；之后再操作会抛 `manager_disposed` |
 
@@ -753,7 +770,7 @@ Readable members / 可读成员：
 | Subtype | Payload | Meaning |
 |---|---|---|
 | `Unauthenticated` | – | No session |
-| `Authenticating` | – | login / register in flight |
+| `Authenticating` | – | login / register / loginWith in flight / 登录、注册或 loginWith 流程进行中 |
 | `Restoring` | – | `restore()` in flight; no session yet |
 | `Authenticated` | `AuthSession session` | Session active |
 | `Refreshing` | `AuthSession session` | Renewal in flight; the previous session stays usable |
@@ -773,12 +790,14 @@ returns the session any state carries (`Authenticated` / `Refreshing` /
 
 Prefer those two getters over `state is Authenticated` and over exhaustive
 `switch` when you do not need per-case payloads — they keep compiling as states
-evolve. Exhaustive `switch` is still enforced by the compiler; note that `0.3.0`
-added two subtypes, so existing switches may need the new cases.
+evolve. Exhaustive `switch` is still enforced by the compiler: `0.3.0` added
+`Refreshing` and `LoggingOut`, and `2.0.0` added `Restoring`, so there are now
+**7 subtypes** and existing switches may need the new cases.
 
 不需要按 case 取负载时，优先使用这两个属性而不是 `state is Authenticated` 或穷举
-`switch`，这样状态演进也不会编译失败。穷举 `switch` 依然由编译器保证；注意 `0.3.0`
-新增了两个子类，已有 switch 可能需要补上新分支。
+`switch`，这样状态演进也不会编译失败。穷举 `switch` 依然由编译器保证：`0.3.0` 新增了
+`Refreshing` 与 `LoggingOut`，`2.0.0` 新增了 `Restoring`，现在共 **7 个子类型**，
+已有 switch 可能需要补上新分支。
 
 ### 11.3 `AuthSession`
 
@@ -815,8 +834,8 @@ AuthSession({
 | `timeUntilExpiry([now])` | `Duration?` | Remaining lifetime / 剩余有效期 |
 | `isExpiringWithin(window, [now])` | `bool` | Renew a little before it dies / 在真正失效前提前续期 |
 | `copyWith(...)` | `AuthSession` | `null` keeps the current value / 传 `null` 表示保留原值 |
-| `toJson()` / `fromJson()` | `Map` / `AuthSession` | Persistence; `fromJson` throws on malformed input / 持久化，畸形数据会抛异常 |
-| `AuthSession.tryFromJson()` | `AuthSession?` | Same, but `null` instead of throwing. Also rejects `claims` with non-string keys, which would otherwise only fail (as a `TypeError`) when a claim is first read / 同上，但返回 `null` 而非抛异常。还会拒绝键不是字符串的 `claims` —— 否则这类数据要等到首次读取 claim 时才以 `TypeError` 失败 |
+| `toJson()` / `fromJson()` | `Map` / `AuthSession` | Persistence; `fromJson` throws `UnexpectedAuthException` (an `AppException`) on malformed input — never a raw `FormatException` / `TypeError` / 持久化；畸形数据会抛 `UnexpectedAuthException`（一种 `AppException`），不再是裸 `FormatException` / `TypeError` |
+| `AuthSession.tryFromJson()` | `AuthSession?` | Still returns `null` instead of throwing. Also rejects `claims` with non-string keys, which would otherwise only fail (as a `TypeError`) when a claim is first read / 仍返回 `null` 而非抛异常。还会拒绝键不是字符串的 `claims` —— 否则这类数据要等到首次读取 claim 时才以 `TypeError` 失败 |
 
 Value equality on `accessToken`, `refreshToken`, `expiresAt`, `userId`,
 `displayName` **and `claims`** — nested maps and lists are compared by content,
@@ -865,6 +884,13 @@ session first. A source without a manager behind it can simply forward the gette
 | `SessionHandle` | `SessionHandle({required String userId, RefreshToken? refreshToken})` |
 | `RefreshToken` | `RefreshToken(String value)` |
 
+`RefreshToken` also round-trips through JSON / `RefreshToken` 也支持 JSON 往返：
+
+| Member | Signature | Notes |
+|---|---|---|
+| `RefreshToken.fromJson()` | `RefreshToken fromJson(Object? json)` | Throws `UnexpectedAuthException` (an `AppException`) when `json` is not a `String` / `json` 不是 `String` 时抛 `UnexpectedAuthException`（一种 `AppException`） |
+| `RefreshToken.tryFromJson()` | `RefreshToken? tryFromJson(Object? json)` | Same, but returns `null` instead of throwing; never rethrows / 同上，但返回 `null` 而不抛异常，绝不重新抛出 |
+
 Optional capability interfaces a strategy may also implement, detected with
 `AuthManager.supports<T>()` / 策略可选实现的能力接口，可用 `supports<T>()` 检测：
 
@@ -900,7 +926,7 @@ single-session. See the
 
 | Member | Notes |
 |---|---|
-| `AuthManagerGroup({strategyFactory, storeFactory, managerFactory?, autoRefreshAhead?, autoRefreshRetryDelay?, autoRefreshMaxRetries?, autoRefreshMinInterval?, refreshFailurePolicy?, clock?, clockSkew?, preserveSessionDetails?, onStateChanged?})` | Every manager knob is forwarded to the managers it creates; `managerFactory` builds them yourself. `onStateChanged` is called as `(accountId, state)` / 管理器调参会完整转发；也可传 `managerFactory` 自行构建；`onStateChanged` 以 `(accountId, state)` 形式调用 |
+| `AuthManagerGroup({strategyFactory, storeFactory, managerFactory?, autoRefreshAhead?, autoRefreshRetryDelay?, autoRefreshMaxRetries?, autoRefreshMinInterval?, refreshFailurePolicy?, clock?, clockSkew?, clockSkewFraction = 0.25, preserveSessionDetails?, onStateChanged?, onObserverError?})` | Every manager knob is forwarded to the managers it creates; `managerFactory` builds them yourself. `clockSkewFraction` (default `0.25`) caps `clockSkew` for short-lived tokens and is forwarded to every manager. `onStateChanged` is called as `(accountId, state)`, `onObserverError` as `(accountId, error, stack)` / 管理器调参会完整转发；也可传 `managerFactory` 自行构建；`clockSkewFraction`（默认 `0.25`）为短寿命令牌钳制 `clockSkew`，同样转发给每个管理器；`onStateChanged` 以 `(accountId, state)` 形式调用，`onObserverError` 以 `(accountId, error, stack)` 形式调用 |
 | `forAccount(id)` / `addAccount(id)` | Lazily creates and caches that account's manager / 惰性创建并缓存 |
 | `switchTo(id)` | Makes an account active; the group's `state` follows it and `activeIdChanges` emits / 激活账号，状态流随之切换且 `activeIdChanges` 发出新值 |
 | `activeIdChanges` | `Stream<String?>` of the active account id (`null` when none) / 激活账号 id 流（无则为 `null`） |
@@ -961,11 +987,12 @@ idempotent.
 | Token never renewed automatically | No built-in timer | Refresh lazily / near expiry / with your own timer ([§9](#9-refresh--expiry--刷新与过期)) |
 | Duplicate refresh calls | Bypassing `refresh()` (e.g. calling strategy directly) | Always go through `AuthManager.refresh()` |
 | `isExpired` always `false` | `expiresAt` was never set | Populate `expiresAt` when building `AuthSession` |
-| Signed out right after launch, on a flaky network | (fixed in 1.0) a transient renewal failure during `restore()` used to clear the store | Upgrade to 1.0: transient failures keep the session / 升级到 1.0，瞬时失败会保留会话 |
-| `userId` / `displayName` vanish after a refresh | Your backend returns tokens only | (fixed in 1.0) identity carries over; `preserveSessionDetails: false` opts out / 1.0 起身份字段会保留 |
-| `AuthException: Unexpected auth failure` although you threw `AuthFail` with a code | (fixed in 1.0) the code of a bare `AuthFail` used to be ignored | Upgrade to 1.0; `mapAuthFailure` now reads it / 升级到 1.0，`mapAuthFailure` 会读取它 |
-| `Bad state`/`FormatException` from your `TokenStore.load()` | `AuthSession.fromJson()` on malformed data | Use `AuthSession.tryFromJson()` / 改用 `tryFromJson()` |
-| Compiler error: "missing implementation of `validAccessToken`" | You `implements AuthTokenSource` and upgraded to 1.0 | Add `@override Future<String?> validAccessToken({Duration? leeway}) async => accessToken;` |
+| Signed out right after launch, on a flaky network | Before 1.0, a transient renewal failure during `restore()` could clear the store / 1.0 之前，`restore()` 期间的瞬时续期失败可能清空存储 | Since 1.0 transient failures keep the session; no upgrade needed on current versions / 自 1.0 起瞬时失败会保留会话，当前版本无需升级 |
+| `userId` / `displayName` vanish after a refresh | Your backend returns tokens only | Since 1.0 identity carries over by default; `preserveSessionDetails: false` opts out / 自 1.0 起默认保留身份字段，可用 `preserveSessionDetails: false` 关闭 |
+| `AuthException: Unexpected auth failure` although you threw `AuthFail` with a code | Before 1.0 the code of a bare `AuthFail` was ignored / 1.0 之前裸 `AuthFail` 的 code 会被忽略 | Since 1.0 `mapAuthFailure` reads the code; no upgrade needed on current versions / 自 1.0 起 `mapAuthFailure` 会读取 code，当前版本无需升级 |
+| `UnexpectedAuthException` (an `AppException`) from your `TokenStore.load()` / `load()` 抛 `UnexpectedAuthException` | `AuthSession.fromJson()` on malformed data no longer leaks `FormatException` / `TypeError`; it throws the typed `AppException` / 畸形数据下 `AuthSession.fromJson()` 不再泄漏 `FormatException` / `TypeError`，而是抛出类型化的 `AppException` | Catch `AppException`, or prefer `AuthSession.tryFromJson()` (returns `null`) / 捕获 `AppException`，或改用返回 `null` 的 `AuthSession.tryFromJson()` |
+| Malformed JSON now surfaces as `UnexpectedAuthException` (an `AppException`) / 畸形 JSON 现在表现为 `UnexpectedAuthException` | `AuthSession.fromJson()` / `RefreshToken.fromJson()` wrap parse & type failures in the shared error type; both `tryFromJson()` variants still return `null` / 两个 `fromJson` 都把解析 / 类型错误包装为统一错误类型，两个 `tryFromJson` 变体仍返回 `null` | Handle `AppException`, or switch `load()` to `tryFromJson` / `RefreshToken.tryFromJson`; no `try/catch` for raw `TypeError` / 按 `AppException` 处理，或把 `load()` 换成 `tryFromJson` / `RefreshToken.tryFromJson`；无需再捕获裸 `TypeError` |
+| Compiler error: "missing implementation of `validAccessToken`" | `validAccessToken()` has been part of `AuthTokenSource` since 1.0 / 自 1.0 起 `validAccessToken()` 已是 `AuthTokenSource` 的成员 | Add `@override Future<String?> validAccessToken({Duration? leeway}) async => accessToken;` / 补上该实现（同上） |
 
 ---
 

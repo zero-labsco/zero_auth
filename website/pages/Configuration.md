@@ -41,6 +41,15 @@ final auth = AuthManager(
 | Time source | `clock` | Drives expiry maths and proactive scheduling; inject one for deterministic tests or to tolerate device clock skew / 驱动过期计算与主动刷新调度；注入时钟可实现确定性测试或容忍设备时钟偏移 |
 | Token injection | `AuthTokenSource` / `validAccessToken()` | How the bearer token reaches HTTP clients, optionally renewing an expired token first / 令牌如何到达 HTTP 客户端，必要时先续期过期令牌 |
 
+`AuthManagerGroup` accepts the same tuning knobs — including the optional
+`clockSkewFraction` (`double`, default `0.25`) — and forwards them to every
+`AuthManager` it creates, so multi-account sessions behave exactly like a
+standalone one.
+
+`AuthManagerGroup` 接受同样的调参项 —— 包括可选的 `clockSkewFraction`
+（`double`，默认 `0.25`）—— 并转发给它创建的每个 `AuthManager`，因此多账号会话的行为
+与单账号完全一致。
+
 ## Refresh strategy / 刷新策略
 
 `refresh()` is **single-flight** by construction: concurrent callers share one in-flight request. You decide *when* to refresh:
@@ -58,6 +67,19 @@ but whether it **ends the session** is decided by `refreshFailurePolicy`. See
 `refreshFailurePolicy` 决定，详见下方「刷新失败策略」。
 
 ## Refresh failure policy / 刷新失败策略
+
+`refreshFailurePolicy` has the signature `bool Function(AppException error)`:
+return `true` to clear the stored session and land on `Unauthenticated`, `false`
+to keep it for a later retry. The default, `defaultRefreshFailurePolicy`, returns
+`true` only for `SessionExpiredException` and `InvalidCredentialsException`;
+every other failure (network hiccup, 5xx) is treated as transient and keeps the
+session.
+
+`refreshFailurePolicy` 的签名为 `bool Function(AppException error)`：返回 `true`
+会清空持久化会话并落到 `Unauthenticated`，返回 `false` 则保留会话供稍后重试。
+默认值 `defaultRefreshFailurePolicy` 仅对 `SessionExpiredException` 与
+`InvalidCredentialsException` 返回 `true`；其它失败（网络抖动、5xx）都视为瞬时故障并
+保留会话。
 
 The default policy signs the user out only for failures that can never succeed
 again, keeping the session when the failure looks transient (so a network blip
@@ -96,6 +118,21 @@ renewal can never surface as an unhandled async error.
 > 浏览器标签页都会让它远晚于 `autoRefreshAhead` 才触发。请把它当作优化 —— 真正的保证
 > 来自 `validAccessToken()`，无论定时器表现如何它都会按需续期。短寿命令牌不要只依赖
 > 主动续期定时器。
+
+For exception-free handling, all seven `try*` variants (`tryLogin`,
+`tryRegister`, `tryLoginWith`, `tryRefresh`, `tryRestore`, `tryLogout`,
+`tryUpdateSession`) return `Future<Result<T>>`; see [Errors](Errors). When you
+persist sessions yourself, parse untrusted values with
+`RefreshToken.tryFromJson(Object? json)` — it returns `null` on malformed input,
+while `RefreshToken.fromJson` throws `UnexpectedAuthException` (an
+`AppException`) for a non-`String`.
+
+如需无异常处理，七个 `try*` 变体（`tryLogin`、`tryRegister`、`tryLoginWith`、
+`tryRefresh`、`tryRestore`、`tryLogout`、`tryUpdateSession`）均返回
+`Future<Result<T>>`；详见[错误](Errors)。自行持久化会话时，请用
+`RefreshToken.tryFromJson(Object? json)` 解析不可信值：畸形输入返回 `null`，而
+`RefreshToken.fromJson` 对非 `String` 抛 `UnexpectedAuthException`（一种
+`AppException`）。
 
 ## No global singletons / 没有全局单例
 

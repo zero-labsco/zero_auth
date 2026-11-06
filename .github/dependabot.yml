@@ -78,11 +78,35 @@ updates:
     commit-message:
       prefix: "chore(deps)"
       include: "scope"
-  # 注意：server/ 为 zero-dependency demo 后端（dependencies / dev_dependencies 均为空），
-  # 无需 Dependabot 监控；若日后新增依赖，请复制上面的 example 段并把 directory 改为 "/server"。
-  # NOTE: server/ is a zero-dependency demo backend (both dependency maps are empty),
-  # so there is nothing for Dependabot to track. If dependencies are added later,
-  # duplicate the example block above with directory: "/server".
+  # ========== Demo 后端 pub 依赖 / Demo backend pub dependencies ==========
+  # server/ 并非零依赖：server/pubspec.yaml 声明了 crypto 用于 HMAC-SHA256 签名，
+  # 因此与 example 一样按月监控。
+  # The backend is NOT zero-dependency: server/pubspec.yaml declares `crypto`
+  # for HMAC-SHA256 signing, so track it monthly too.
+  - package-ecosystem: "pub"
+    directory: "/server"
+    schedule:
+      interval: "monthly"
+      timezone: "Asia/Shanghai"
+    groups:
+      server-runtime:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      server-major:
+        update-types:
+          - "major"
+    # 每月最多提 1 个 PR / Max 1 PR per month
+    open-pull-requests-limit: 1
+    # 与根项目一致：保留 caret 约束 / Same as root: preserve caret constraints
+    versioning-strategy: "increase"
+    labels:
+      - "pub"
+      - "server"
+    commit-message:
+      prefix: "chore(deps)"
+      include: "scope"
 
   # ========== GitHub Actions 版本更新 / GitHub Actions updates ==========
   # 检查 .github/workflows/ 中使用的 actions/xxx@vN 版本

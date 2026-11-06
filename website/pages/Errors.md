@@ -50,15 +50,20 @@ throw const AuthFail('Wrong password', code: 'invalid_credentials');
 | `invalid_grant`, `invalid_refresh_token`, `token_expired`, `session_expired` | `SessionExpiredException` |
 | `no_active_session` | `NoActiveSessionException` |
 | `refresh_token_missing` | `RefreshTokenMissingException` |
+| `unexpected_auth_failure` | `UnexpectedAuthException` |
 | anything else / 其它 | preserved as-is, or `UnexpectedAuthException` / 原样保留或包装为 `UnexpectedAuthException` |
 
-Codes raised by the manager itself (not your strategy) / 由管理器自身产生的 code：
+Codes raised by the manager (and group) itself (not your strategy) / 由管理器（及分组）自身产生的 code：
 
 | code | Raised when / 何时触发 |
 |------|------------------------|
 | `auth_flow_in_progress` | Another `login` / `register` / `loginWith` is already running / 已有登录流程在执行 |
 | `session_persist_failed` | The session could not be written to the `TokenStore` (retried once first) / 会话无法写入 `TokenStore`（已先重试一次） |
 | `manager_disposed` | An operation is called after `dispose()` / `dispose()` 后又调用操作 |
+| `group_disposed` | An operation is called on an `AuthManagerGroup` after `disposeAll()` / `disposeAll()` 后又调用分组操作 |
+| `no_active_session` | An operation needed an active session but none exists / 需要活动会话却没有 |
+| `refresh_token_missing` | Refresh requested without a refresh token / 无刷新令牌却请求刷新 |
+| `unexpected_auth_failure` | Fallback for anything unclassifiable (malformed payloads, unreadable stores) / 无法归类时的兜底（畸形数据、无法读取的存储） |
 
 > Overlapping authentication flows are rejected rather than racing: a second
 > `login()` while one is in flight throws `auth_flow_in_progress`.
@@ -96,12 +101,17 @@ final class Err<T> extends Result<T> {
 }
 ```
 
-Three operations return one out of the box — `tryLogin()`, `tryRefresh()` and
-`tryRestore()` are the same code paths as their throwing twins, with the outcome
-delivered as a `Result` instead of an exception:
+Seven operations return one out of the box — `tryLogin()`, `tryRegister()`,
+`tryLoginWith()`, `tryRefresh()`, `tryRestore()`, `tryLogout()` and
+`tryUpdateSession()` are the same code paths as their throwing twins, with the
+outcome delivered as a `Future<Result<T>>` instead of an exception. The four
+newer variants mirror `register`, `loginWith`, `logout` and `updateSession`.
 
-三个操作开箱即用地返回 `Result` —— `tryLogin()`、`tryRefresh()` 与 `tryRestore()`
-与各自的抛异常版本共用同一条代码路径，只是把结果以 `Result` 交付而非异常：
+七个操作开箱即用地返回 `Result` —— `tryLogin()`、`tryRegister()`、
+`tryLoginWith()`、`tryRefresh()`、`tryRestore()`、`tryLogout()` 与
+`tryUpdateSession()` 与各自的抛异常版本共用同一条代码路径，只是把结果以
+`Future<Result<T>>` 交付而非异常。其中四个新变体分别对应 `register`、`loginWith`、
+`logout` 与 `updateSession`。
 
 ```dart
 // Ok carries the Authenticated state that was installed.

@@ -53,10 +53,15 @@ branch", branch `gh-pages`, folder `/ (root)`).
 GitHub Pages 提供该分支（一次性仓库设置：Settings → Pages → Source "Deploy from a
 branch"，branch `gh-pages`，folder `/ (root)`）。
 
-Only `website/pages/*.md` is hand-edited — never build or commit a `docs/`
-directory.
+Only the **site source** `website/pages/*.md` is hand-edited for the docs site —
+never build or commit a `docs/` directory. The package-level docs `README.md`,
+`README_zh.md`, `USAGE.md` and `CHANGELOG.md` are also hand-maintained and must
+be updated manually (notably `USAGE.md`'s `^X.Y.Z` constraint on every version
+bump).
 
-只有 `website/pages/*.md` 需要手工编辑——不要构建或提交 `docs/` 目录。
+文档站的**站点源**只有 `website/pages/*.md` 需要手工编辑——不要构建或提交
+`docs/` 目录。`README.md`、`README_zh.md`、`USAGE.md` 与 `CHANGELOG.md` 同样需要
+手工维护（尤其是每次版本升级时 `USAGE.md` 的 `^X.Y.Z` 依赖约束）。
 
 ```powershell
 # Optional: local preview (writes website/out/, which is git-ignored).
@@ -103,9 +108,13 @@ node website/scripts/sync-docs.mjs --ci
 
 Bumping the version is the maintainer's call (see `AGENTS.md` for the mandatory
 version-bump checklist). In short: update `version` in `pubspec.yaml`, the four
-spots in both `README.md` and `README_zh.md`, and add a bilingual `## X.Y.Z`
-section at the top of `CHANGELOG.md` (only `lib/` behaviour changes earn a
-changelog entry).
+spots in both `README.md` and `README_zh.md`, the `^X.Y.Z` dependency constraint
+in `USAGE.md` (§2 Install), and add a bilingual `## X.Y.Z` section at the top of
+`CHANGELOG.md` (only `lib/` behaviour changes earn a changelog entry).
+
+Then run the grep sanity check — apart from legitimate history, no old version
+string may survive / 再跑一遍 grep 校验：除合法历史记录外不应残留旧版本号：
+`grep -rn "old_version" README.md README_zh.md USAGE.md CHANGELOG.md`.
 
 Release flow:
 

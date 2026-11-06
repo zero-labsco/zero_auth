@@ -1,6 +1,7 @@
 # 自动标记并关闭长期不活跃的 Issue 和 PR / Auto-mark and close stale Issues and PRs
-# 60 天无活动 → 标记 stale + 留言；再过 7 天无活动 → 关闭
-# 60 days no activity → mark stale + comment; another 7 days no activity → close
+# 60 天无活动 → 标记 stale + 留言；之后 Issue 再过 7 天、PR 再过 14 天无活动 → 关闭
+# 60 days no activity → mark stale + comment; then close after another 7 days
+# (issues) / 14 days (PRs) of inactivity
 name: Mark stale issues and pull requests
 
 on:
@@ -24,7 +25,10 @@ jobs:
           # ===== 时间窗口 / Time windows =====
           # 60 天无活动后标记为 stale / Mark stale after 60 days of inactivity
           days-before-stale: 60
-          # 标记后再过 7 天无活动则关闭 / Close after another 7 days of inactivity
+          # 关闭窗口：Issue 7 天、PR 14 天（PR 由下方 days-before-pr-close: 14 覆盖）；
+          # 此处 days-before-close 为全局兜底值，取 Issue 的 7 天。
+          # Close window: 7 days for issues, 14 days for PRs (overridden below by
+          # days-before-pr-close: 14); days-before-close is the global fallback.
           days-before-close: 7
 
           # ===== Issue 配置 / Issue config =====

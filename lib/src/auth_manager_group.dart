@@ -58,6 +58,7 @@ final class AuthManagerGroup implements AuthTokenSource {
     this.refreshFailurePolicy,
     this.clock,
     this.clockSkew,
+    this.clockSkewFraction = 0.25,
     this.preserveSessionDetails = true,
     this.onStateChanged,
     this.onObserverError,
@@ -91,6 +92,14 @@ final class AuthManagerGroup implements AuthTokenSource {
   final RefreshFailurePolicy? refreshFailurePolicy;
   final DateTime Function()? clock;
   final Duration? clockSkew;
+
+  /// Caps [clockSkew] at this fraction of the observed token lifetime for every
+  /// manager this group creates. Defaults to `0.25`; see
+  /// [AuthManager.clockSkewFraction].
+  /// 为分组创建的每个管理器把 [clockSkew] 钳制为观测到的令牌寿命的这个比例。
+  /// 默认 `0.25`；参见 [AuthManager.clockSkewFraction]。
+  final double clockSkewFraction;
+
   final bool preserveSessionDetails;
 
   /// Invoked for every state emitted by **any** account's manager, tagged with
@@ -181,6 +190,7 @@ final class AuthManagerGroup implements AuthTokenSource {
       refreshFailurePolicy: refreshFailurePolicy,
       clock: clock,
       clockSkew: clockSkew,
+      clockSkewFraction: clockSkewFraction,
       preserveSessionDetails: preserveSessionDetails,
       onStateChanged:
           observer == null ? null : (state) => observer(accountId, state),
@@ -274,14 +284,20 @@ final class AuthManagerGroup implements AuthTokenSource {
   /// 激活账号的状态流。与 [AuthManager.state] 一样，对新订阅者重放最近值。
   Stream<AuthState> get state {
     _checkUsable();
+    // Subscribe lazily: merely reading `state` without listening must not leave
+    // a dangling subscription on the broadcast controller.
+    // 惰性订阅：只读取 `state` 而不监听时，不应在广播 controller 上留下悬挂订阅。
+    StreamSubscription<AuthState>? sub;
     final sc = StreamController<AuthState>();
-    sc.add(current);
-    final sub = _controller.stream.listen(
-      sc.add,
-      onError: sc.addError,
-      onDone: sc.close,
-    );
-    sc.onCancel = sub.cancel;
+    sc.onListen = () {
+      sc.add(current);
+      sub = _controller.stream.listen(
+        sc.add,
+        onError: sc.addError,
+        onDone: sc.close,
+      );
+    };
+    sc.onCancel = () => sub?.cancel();
     return sc.stream;
   }
 

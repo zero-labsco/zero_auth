@@ -66,7 +66,7 @@ auth.state.listen((state) {
 | State | Meaning |
 |-------|---------|
 | `Unauthenticated` | No session / 无会话 |
-| `Authenticating` | `login`/`register` in flight / 登录/注册进行中 |
+| `Authenticating` | `login` / `register` / `loginWith` in flight / 登录 / 注册 / 自定义流程进行中 |
 | `Restoring` | `restore()` in flight; no session yet / 恢复进行中，此刻还没有会话 |
 | `Authenticated` | A valid session is present / 存在有效会话 |
 | `Refreshing` | Session renewal in flight; the previous session stays usable / 续期进行中，旧会话仍可用 |

@@ -1,5 +1,64 @@
 # Changelog
 
+## 2.2.0
+
+**Additive release / 增量版本.** Completes the `Result` family, hardens the
+public deserializers, forwards the last missing manager knob through
+`AuthManagerGroup`, and closes a stream-subscription leak; no migration needed.
+**增量版本。** 补齐 `Result` 家族、加固公开反序列化、把最后一个遗漏的管理器调参转发给
+`AuthManagerGroup`，并修复状态流的订阅泄漏；无需迁移。
+
+### Added / 新增
+
+- **`tryRegister()`, `tryLoginWith()`, `tryLogout()` and `tryUpdateSession()`** —
+  the `Result` family now covers every operation that can fail. All seven `try*`
+  variants share their throwing twin's code path, emit `AuthError` on failure and
+  deliver `Ok` / `Err` instead of rethrowing, so an error-handling style can be
+  chosen once and used everywhere. Every new parameter is additive; existing
+  code is unchanged.
+  - **`tryRegister()`、`tryLoginWith()`、`tryLogout()` 与 `tryUpdateSession()`** ——
+    `Result` 家族现已覆盖所有可能失败的操作。7 个 `try*` 变体共用各自抛异常版本的代码
+    路径，失败时仍发出 `AuthError`，但以 `Ok` / `Err` 交付而不再重新抛出，因此错误处理
+    风格只需选定一次即可全站统一。新增参数一律为追加项，现有代码无需改动。
+- **`RefreshToken.tryFromJson()`** — the non-throwing counterpart of the bare
+  token deserializer: it returns `null` for any non-`String` value, so a store
+  holding a hand-edited or partially written refresh token reads as "not signed
+  in" just like `AuthSession.tryFromJson()`.
+  - **`RefreshToken.tryFromJson()`** —— 单个令牌反序列化的非抛错版本：任何非 `String`
+    值都返回 `null`，因此存储里被人为改过或写入中断的刷新令牌，会与
+    `AuthSession.tryFromJson()` 一样被读作「未登录」。
+- **`AuthManagerGroup.clockSkewFraction`** — the one `AuthManager` knob the group
+  did not forward. It defaults to `0.25` and is now passed to every manager the
+  group creates, so multi-account sessions honour the same short-token skew cap
+  as a standalone one.
+  - **`AuthManagerGroup.clockSkewFraction`** —— 补上分组此前唯一未转发的 `AuthManager`
+    调参项。默认 `0.25`，现在会传给分组创建的每个管理器，使多账号会话与单账号一样遵守
+    短寿命令牌的容差上限。
+
+### Fixed / 修复
+
+- **`RefreshToken.fromJson()` no longer leaks a raw `TypeError`.** It now
+  delegates to `tryFromJson` and raises `UnexpectedAuthException` (an
+  `AppException`) for a non-`String` value, matching `AuthSession.fromJson` and
+  the promise that raw errors never cross the public surface.
+  - **`RefreshToken.fromJson()` 不再泄漏裸 `TypeError`。** 现在委托 `tryFromJson`，
+    对非 `String` 值抛出 `UnexpectedAuthException`（一种 `AppException`），与
+    `AuthSession.fromJson` 及「裸错误绝不越过公共面」的承诺保持一致。
+- **Reading `state` without listening no longer leaves a dangling subscription.**
+  `AuthManager.state` and `AuthManagerGroup.state` now subscribe to the internal
+  broadcast controller lazily, on first listen, and cancel on unlisten. A caller
+  that only reads the getter (for example to pass it around) no longer pins a
+  subscription for the manager's lifetime.
+  - **读取 `state` 而不监听时不再留下悬挂订阅。** `AuthManager.state` 与
+    `AuthManagerGroup.state` 现在在首次监听时才惰性订阅内部广播 controller，并在取消
+    监听时取消订阅。只读取该 getter（例如把它传递出去）的调用方，不再让一个订阅一直挂到
+    管理器被释放为止。
+- **The public deserializer doc comments now describe the shipped behaviour.**
+  `AuthSession.tryFromJson` no longer claims `fromJson` throws `FormatException` /
+  `TypeError`, and the duplicated `fromJson` summary line is gone.
+  - **公开反序列化的文档注释现已与实现一致。** `AuthSession.tryFromJson` 不再声称
+    `fromJson` 会抛 `FormatException` / `TypeError`，并删掉了重复的 `fromJson` 摘要行。
+
 ## 2.1.1
 
 **Patch release / 补丁版本.** Session-installation race fixes and a safer public
@@ -253,12 +312,14 @@ hardening fixes and a consistency fix in frozen `claims`; no migration needed.
     丢失的写入过去会留下一个已死的刷新令牌 —— 支持轮换的后端会据此吊销整个 family，让
     用户在下次启动时被登出。
 - **Extreme timing interleavings now have regression tests.** "A renewal landing
-  after `logout()`" and "a renewal still in flight when `dispose()` arrives" are
-  covered by `test/auth_manager_race_test.dart`, which gates the renewal behind a
-  `Completer` instead of racing the event loop.
-  - **极端时序交错现在有了回归测试。** 「续期在 `logout()` 之后落地」与「`dispose()`
-    到达时续期仍在飞行中」由 `test/auth_manager_race_test.dart` 覆盖，它用 `Completer`
-    挡住续期，而不是与事件循环赛跑。
+  after `logout()`" is covered by `test/auth_manager_race_test.dart`; the
+  "a renewal still in flight when `dispose()` arrives" case was later moved to
+  `test/release_2_2_0_test.dart`. Both gate the renewal behind a `Completer`
+  instead of racing the event loop.
+  - **极端时序交错现在有了回归测试。** 「续期在 `logout()` 之后落地」由
+    `test/auth_manager_race_test.dart` 覆盖；「`dispose()` 到达时续期仍在飞行中」后来
+    迁到 `test/release_2_2_0_test.dart`。两者都用 `Completer` 挡住续期，而不是与事件
+    循环赛跑。
 
 ## 1.0.0
 
